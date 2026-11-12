@@ -128,3 +128,7 @@ contract-gatekeeper check-contention <capsule> [agentId]
 - Locks live in a local `.gatekeeper-locks.json`. Agents in separate clones or worktrees do not share them, and `check` only enforces locks when `--agent` is passed.
 - A shared-file change re-verifies every capsule. Narrowing that to the capsules that actually import the file is not implemented yet.
 - The import scan is regex-based. It does not see dynamic imports built from variables.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).
