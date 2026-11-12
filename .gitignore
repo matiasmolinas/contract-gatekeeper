@@ -1,0 +1,11 @@
+node_modules/
+dist/
+
+# Estado local de bloqueos entre agentes (no se versiona)
+.gatekeeper-locks.json
+.gatekeeper-locks.json.lock
+.gatekeeper-locks.json.tmp-*
+
+# Temporales del gatekeeper y de la suite de pruebas
+.gatekeeper-base-*
+test/.fixtures-*/

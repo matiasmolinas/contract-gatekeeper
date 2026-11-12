@@ -1,0 +1,52 @@
+name: Contract Gatekeeper CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  contract-gate:
+    runs-on: ubuntu-latest
+    outputs:
+      verdict: ${{ steps.gate.outputs.verdict }}
+      key_flows: ${{ steps.gate.outputs.key_flows }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - run: npm test
+
+      - name: Run Contract Gatekeeper (Millisecond Check)
+        id: gate
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          # El CLI sale con 1 en REJECTED: se captura para publicar el reporte antes de fallar
+          set +e
+          REPORT=$(npx tsx src/cli.ts check --base "$BASE_REF" --head HEAD --json)
+          STATUS=$?
+          set -e
+          echo "$REPORT"
+          echo "verdict=$(echo "$REPORT" | jq -r '.verdict')" >> "$GITHUB_OUTPUT"
+          echo "key_flows=$(echo "$REPORT" | jq -c '.affectedKeyFlows')" >> "$GITHUB_OUTPUT"
+          exit $STATUS
+
+  browser-e2e-check:
+    needs: contract-gate
+    # Solo se ejecuta si el Gatekeeper detectó cambio de frontera o archivo compartido
+    if: needs.contract-gate.outputs.verdict == 'ESCALATE_TO_E2E'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Real-Browser Check (ShipGuarde / Playwright) on Affected Key Flows
+        env:
+          KEY_FLOWS: ${{ needs.contract-gate.outputs.key_flows }}
+        run: |
+          echo "🟡 Frontera cruzada. Ejecutando verificación de navegador SOLO en los flujos afectados:"
+          echo "$KEY_FLOWS"
