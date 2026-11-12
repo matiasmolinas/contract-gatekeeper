@@ -129,6 +129,10 @@ contract-gatekeeper check-contention <capsule> [agentId]
 - A shared-file change re-verifies every capsule. Narrowing that to the capsules that actually import the file is not implemented yet.
 - The import scan is regex-based. It does not see dynamic imports built from variables.
 
+## Acknowledgements
+
+Special thanks to Ismael Faro. This tool grew out of a prototype built directly on his architectural recommendations and proposals: treating the development lifecycle itself as a program, and isolating capabilities behind strict, self-verifying contracts.
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
