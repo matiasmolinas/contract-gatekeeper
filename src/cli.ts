@@ -2,11 +2,12 @@
 // src/cli.ts
 import fs from 'node:fs';
 import path from 'node:path';
-import { runGatekeeper } from './engine.js';
+import { cleanupTempArtifacts, runGatekeeper } from './engine.js';
 import { acquireLock, checkContention, releaseLock } from './lock-manager.js';
 import type { GatekeeperConfig, GatekeeperVerdict } from './types.js';
 
 const USAGE = `Uso:
+  contract-gatekeeper init
   contract-gatekeeper check [--base <ref>] [--head <ref>] [--files a,b] [--agent <id>] [--json]
   contract-gatekeeper lock <capsule> <agentId>
   contract-gatekeeper unlock <capsule> <agentId>
@@ -16,6 +17,7 @@ function loadConfig(): GatekeeperConfig {
   const configPath = path.resolve(process.cwd(), 'gatekeeper.config.json');
   if (!fs.existsSync(configPath)) {
     console.error('❌ Error: gatekeeper.config.json no encontrado en el directorio actual.');
+    console.error('   Créalo con: contract-gatekeeper init');
     process.exit(2);
   }
   let config: GatekeeperConfig;
@@ -35,6 +37,35 @@ function loadConfig(): GatekeeperConfig {
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0] && !args[0].startsWith('--') ? args[0] : 'check';
+
+  // Si matan el proceso a mitad de la fase 5, no dejar baselines temporales en el repo
+  for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]] as const) {
+    process.on(signal, () => {
+      cleanupTempArtifacts();
+      process.exit(code);
+    });
+  }
+
+  if (command === 'init') {
+    const target = path.resolve(process.cwd(), 'gatekeeper.config.json');
+    if (fs.existsSync(target)) {
+      console.log('ℹ️  gatekeeper.config.json ya existe; no se modificó.');
+      process.exit(0);
+    }
+    // Usa la primera carpeta de módulos que exista en el repo
+    const candidates = ['src/modules', 'src/plugins', 'src/features', 'plugins', 'modules'];
+    const pluginsDir = candidates.find(dir => fs.existsSync(path.resolve(process.cwd(), dir))) ?? 'src/modules';
+    const defaultConfig: GatekeeperConfig = {
+      pluginsDir,
+      entryFileName: 'index.ts',
+      allowedExternalPackages: [],
+      keyFlows: {}
+    };
+    fs.writeFileSync(target, JSON.stringify(defaultConfig, null, 2) + '\n', 'utf-8');
+    console.log(`✅ gatekeeper.config.json creado (pluginsDir: "${pluginsDir}").`);
+    console.log('   Ajusta pluginsDir, allowedExternalPackages y keyFlows a tu repo, y corre: contract-gatekeeper check');
+    process.exit(0);
+  }
 
   if (command === 'lock') {
     const [, capsule, agentId] = args;

@@ -29,7 +29,7 @@ npx tsx src/cli.ts check --files src/shared/styles.css
 
 ## How a repository adopts it
 
-1. Add `gatekeeper.config.json` at the repository root:
+1. Run `contract-gatekeeper init` to create `gatekeeper.config.json` at the repository root, then adjust it:
 
 ```json
 {
@@ -82,18 +82,23 @@ Until the package is on npm, install it from GitHub: `npm i -D github:matiasmoli
 | 2 | Files in more than one capsule | `MULTIPLE_CAPSULES_TOUCHED` → escalate |
 | 3 | Capsule locked by a different agent (`--agent`) | `CAPABILITY_LOCKED_BY_ANOTHER_AGENT` → reject |
 | 4 | Import that leaves the capsule, or a package not in `allowedExternalPackages` | `ILLEGAL_CROSS_CAPSULE_IMPORT` → reject |
-| 5 | `capability`, `inputSchema`, `outputSchema` or `dependsOn` changed; capsule added or removed | `CONTRACT_SCHEMA_MUTATED` → escalate |
+| 5 | `capability`, `inputSchema`, `outputSchema` or `dependsOn` changed; capsule added or removed; base manifest cannot be loaded | `CONTRACT_SCHEMA_MUTATED` → escalate |
 | 5 | New entry in `permissions` | `PERMISSIONS_ESCALATED` → escalate |
 | 5 | `budget` raised | `BUDGET_REGRESSED` → escalate |
 | 6 | `selfTest()` fails, throws, exceeds `budget.maxLatencyMs`, or the capsule has no loadable plugin | `SELFTEST_FAILED` → reject |
 
 When shared code is touched, every capsule is re-verified. Affected capabilities are propagated through `dependsOn`, then matched against `keyFlows` to produce `affectedKeyFlows`.
 
-Type-only imports (`import type`) are ignored by the import scan, since they are erased at compile time.
+`STRICT_CAPSULE_INTERNAL_CHANGE` is reported only when the change stayed inside one capsule and neither the contract nor the import boundary was crossed.
+
+Type-only imports (`import type { A } from …`) are ignored by the import scan, since they are always erased at compile time. The inline form `import { type A } from …` is not: under `verbatimModuleSyntax` or Node's native type stripping it survives as `import {} from …` and loads the module, so it is checked like any other import.
+
+For phase 5, the capsule as it was at the base ref is written to a temporary sibling folder (`<pluginsDir>/.gatekeeper-base-*`), imported, and removed. Add `.gatekeeper-base-*` to `.gitignore`.
 
 ## CLI
 
 ```text
+contract-gatekeeper init
 contract-gatekeeper check [--base <ref>] [--head <ref>] [--files a,b] [--agent <id>] [--json]
 contract-gatekeeper lock <capsule> <agentId>
 contract-gatekeeper unlock <capsule> <agentId>
@@ -105,7 +110,7 @@ contract-gatekeeper check-contention <capsule> [agentId]
 ```json
 {
   "verdict": "ESCALATE_TO_E2E",
-  "reasons": ["STRICT_CAPSULE_INTERNAL_CHANGE", "PERMISSIONS_ESCALATED"],
+  "reasons": ["PERMISSIONS_ESCALATED"],
   "humanReviewLoad": "HIGH",
   "touchedCapsules": ["support-studio"],
   "outOfCapsuleFiles": [],
@@ -127,11 +132,13 @@ contract-gatekeeper check-contention <capsule> [agentId]
 - TypeScript entry files are loaded as-is: run through `tsx`, or use Node 22.18+ with erasable-only TypeScript syntax.
 - Locks live in a local `.gatekeeper-locks.json`. Agents in separate clones or worktrees do not share them, and `check` only enforces locks when `--agent` is passed.
 - A shared-file change re-verifies every capsule. Narrowing that to the capsules that actually import the file is not implemented yet.
-- The import scan is regex-based. It does not see dynamic imports built from variables.
+- The import scan is pattern-based, not a full parser. It reads string and template-literal specifiers (for `` import(`../x/${name}.js`) `` it judges the static directory prefix), but it cannot see `import(someVariable)`.
 
 ## Acknowledgements
 
 Special thanks to Ismael Faro. This tool grew out of a prototype built directly on his architectural recommendations and proposals: treating the development lifecycle itself as a program, and isolating capabilities behind strict, self-verifying contracts.
+
+The idea was also inspired in part by [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and its "everything is a plugin" architecture, where that prototype was built and tested. Contract Gatekeeper itself has no dependency on it and runs in any TypeScript/JavaScript repository.
 
 ## License
 

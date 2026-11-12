@@ -50,10 +50,24 @@ export function refExists(ref: string): boolean {
   }
 }
 
-/** Contenido de un archivo (ruta relativa al cwd) en `ref`, o null si no existía. */
-export function readFileAtRef(ref: string, relativePath: string): string | null {
+/** Archivos (rutas relativas al cwd) que existían bajo `dir` en `ref`. */
+export function listFilesAtRef(ref: string, dir: string): string[] {
   try {
-    return git(['show', `${ref}:./${relativePath.replace(/\\/g, '/')}`]);
+    return git(['ls-tree', '-r', '--name-only', '-z', ref, '--', `./${dir.replace(/\\/g, '/')}/`])
+      .split('\0')
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** Contenido binario de un archivo (ruta relativa al cwd) en `ref`, o null si no existía. */
+export function readBlobAtRef(ref: string, relativePath: string): Buffer | null {
+  try {
+    return execFileSync('git', ['show', `${ref}:./${relativePath.replace(/\\/g, '/')}`], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 64 * 1024 * 1024
+    });
   } catch {
     return null;
   }

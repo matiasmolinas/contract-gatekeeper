@@ -13,7 +13,7 @@ import type {
   SelfTestResult,
   VerdictStatus
 } from './types.js';
-import { getChangedFilesFromGit, readFileAtRef, refExists } from './git-inspector.js';
+import { getChangedFilesFromGit, listFilesAtRef, readBlobAtRef, refExists } from './git-inspector.js';
 import { scanCapsuleImports } from './import-scanner.js';
 import { resolveAffectedGraph } from './graph-resolver.js';
 import { readLocks } from './lock-manager.js';
@@ -102,6 +102,10 @@ export async function runGatekeeper(
   }
 
   const finish = (): GatekeeperVerdict => {
+    // "Estrictamente interno" deja de ser cierto si mutó el contrato o un import cruzó la frontera
+    if (contractMutated || reasons.has('ILLEGAL_CROSS_CAPSULE_IMPORT')) {
+      reasons.delete('STRICT_CAPSULE_INTERNAL_CHANGE');
+    }
     const reasonList = Array.from(reasons);
     let verdict: VerdictStatus = 'FAST_TRACK';
     let humanReviewLoad: HumanReviewLoad = 'LOW';
@@ -198,7 +202,12 @@ export async function runGatekeeper(
     } else if (gitBaselineAvailable) {
       const loaded = await loadManifestAtRef(config, capsule, baseRef);
       if (loaded.error) {
-        warnings.push(`Baseline manifest of '${capsule}' at '${baseRef}' could not be loaded: ${loaded.error}`);
+        // Sin baseline no se puede probar que el contrato sigue igual: se escala, no se deja pasar
+        contractMutated = true;
+        reasons.add('CONTRACT_SCHEMA_MUTATED');
+        warnings.push(
+          `Baseline manifest of '${capsule}' at '${baseRef}' could not be loaded, so the contract is treated as mutated: ${loaded.error}`
+        );
       } else {
         base = loaded.manifest;
         baseKnown = true;
@@ -328,7 +337,8 @@ async function loadAllPlugins(config: GatekeeperConfig): Promise<{
 
   const entries = fs
     .readdirSync(absPluginsDir, { withFileTypes: true })
-    .filter(e => e.isDirectory())
+    // Los `.gatekeeper-base-*` son baselines temporales de otra ejecución en paralelo
+    .filter(e => e.isDirectory() && !e.name.startsWith(BASELINE_PREFIX))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   for (const entry of entries) {
@@ -345,12 +355,27 @@ async function loadAllPlugins(config: GatekeeperConfig): Promise<{
   return { modules, loadErrors };
 }
 
+const BASELINE_PREFIX = '.gatekeeper-base-';
+const tempArtifacts = new Set<string>();
 let baselineCounter = 0;
 
 /**
- * Carga el manifest de una cápsula tal como estaba en `ref`. El archivo de
- * entrada se materializa junto al actual (para que sus imports relativos
- * resuelvan igual), se importa y se borra.
+ * Borra los baselines temporales que sigan en disco. `runGatekeeper` ya limpia
+ * al terminar; esto es para quien deba salir a mitad de una ejecución (el CLI
+ * lo llama al recibir SIGINT/SIGTERM).
+ */
+export function cleanupTempArtifacts(): void {
+  for (const dir of tempArtifacts) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  tempArtifacts.clear();
+}
+
+/**
+ * Carga el manifest de una cápsula tal como estaba en `ref`. La cápsula entera
+ * se materializa en un directorio hermano temporal (misma profundidad, para
+ * que sus imports resuelvan igual) y se importa desde ahí: así no depende de
+ * que los archivos internos sigan existiendo o llamándose igual en HEAD.
  * `manifest === undefined` sin `error` significa que la cápsula no existía en `ref`.
  */
 async function loadManifestAtRef(
@@ -358,25 +383,31 @@ async function loadManifestAtRef(
   capsule: string,
   ref: string
 ): Promise<{ manifest?: PluginManifest; error?: string }> {
-  const relEntry = `${normalizePath(config.pluginsDir).replace(/\/+$/, '')}/${capsule}/${config.entryFileName}`;
-  const source = readFileAtRef(ref, relEntry);
-  if (source === null) return {};
+  const capsuleRel = `${normalizePath(config.pluginsDir).replace(/\/+$/, '')}/${capsule}`;
+  const files = listFilesAtRef(ref, capsuleRel);
+  if (!files.includes(`${capsuleRel}/${config.entryFileName}`)) return {};
 
-  const capsuleDir = path.resolve(process.cwd(), config.pluginsDir, capsule);
-  const createdDir = !fs.existsSync(capsuleDir);
-  const tmpFile = path.join(
-    capsuleDir,
-    `.gatekeeper-base-${process.pid}-${baselineCounter++}-${config.entryFileName}`
+  const tmpDir = path.resolve(
+    process.cwd(),
+    config.pluginsDir,
+    `${BASELINE_PREFIX}${process.pid}-${baselineCounter++}-${capsule}`
   );
+  tempArtifacts.add(tmpDir);
   try {
-    fs.mkdirSync(capsuleDir, { recursive: true });
-    fs.writeFileSync(tmpFile, source, 'utf-8');
-    const plugin = asPlugin(await import(pathToFileURL(tmpFile).href));
+    for (const file of files) {
+      const blob = readBlobAtRef(ref, file);
+      if (!blob) continue;
+      const target = path.join(tmpDir, file.slice(capsuleRel.length + 1));
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, blob);
+    }
+    const entryUrl = pathToFileURL(path.join(tmpDir, config.entryFileName)).href;
+    const plugin = asPlugin(await import(entryUrl));
     return typeof plugin === 'string' ? { error: plugin } : { manifest: plugin.manifest };
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   } finally {
-    fs.rmSync(tmpFile, { force: true });
-    if (createdDir) fs.rmSync(capsuleDir, { recursive: true, force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    tempArtifacts.delete(tmpDir);
   }
 }

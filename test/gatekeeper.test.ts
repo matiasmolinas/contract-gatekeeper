@@ -1,5 +1,6 @@
 // test/gatekeeper.test.ts
 import assert from 'node:assert';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { runGatekeeper } from '../src/engine.js';
@@ -87,7 +88,7 @@ async function runTests() {
     }
   });
   assert.strictEqual(res3.verdict, 'ESCALATE_TO_E2E');
-  assert.ok(res3.reasons.includes('PERMISSIONS_ESCALATED'));
+  assert.deepStrictEqual(res3.reasons, ['PERMISSIONS_ESCALATED']); // ya no es "estrictamente interno"
   assert.strictEqual(res3.contractMutated, true);
   assert.deepStrictEqual(res3.affectedKeyFlows, ['customer-support-triage-dock', 'full-workspace-composer']);
   console.log('✅ Escenario 3 (Escalada de permisos en manifest -> PERMISSIONS_ESCALATED -> ESCALATE_TO_E2E): OK');
@@ -190,6 +191,107 @@ async function runTests() {
   assert.deepStrictEqual(res7b.touchedCapsules, []);
   assert.deepStrictEqual(res7b.outOfCapsuleFiles, ['examples/plugins/registry.ts']);
   console.log('✅ Escenario 7 (Sin cambios -> NONE; archivo en raíz de pluginsDir -> SHARED_BOUNDARY): OK');
+
+  // ESCENARIO 8: Formas de esconder un import al escáner
+  const cfg8 = writeFixture('evasion', {
+    'other/index.ts': pluginSource('plugin-other', 'cap.other'),
+    'other/x.ts': 'export const x = 1;\n',
+    // `//` dentro de un string no es comentario: el import de la misma línea debe verse
+    'slashes/index.ts': pluginSource(
+      'plugin-slashes',
+      'cap.slashes',
+      `const msg = "Format: //network-share/path"; import { x } from "../other/x.js";\nvoid msg; void x;`
+    ),
+    // import() con backticks, con y sin interpolación
+    'backtick/index.ts': pluginSource('plugin-backtick', 'cap.backtick', 'export const load = () => import(`../other/x.js`);'),
+    'template/index.ts': pluginSource(
+      'plugin-template',
+      'cap.template',
+      'export const load = (n: string) => import(`../other/${n}.js`);\nexport const ok = (n: string) => import(`./local/${n}.js`);'
+    ),
+    // `import { type A }` puede sobrevivir como import en runtime: se rechaza con sugerencia
+    'inline/index.ts': pluginSource('plugin-inline', 'cap.inline', `import { type X } from '../other/x.js';\nexport type Y = X;`),
+    // Imports mencionados solo en comentarios o texto: no cuentan
+    'quiet/index.ts': pluginSource(
+      'plugin-quiet',
+      'cap.quiet',
+      `// import a from '../other/x.js';\n/* import b from '../other/x.js'; */\nconst url = 'https://example.com/a//b';\nvoid url;`
+    )
+  });
+  const scan = async (capsule: string) =>
+    runGatekeeper(cfg8, { explicitFiles: [`${cfg8.pluginsDir}/${capsule}/index.ts`], baselineManifests: {} });
+
+  for (const capsule of ['slashes', 'backtick', 'template', 'inline']) {
+    const res = await scan(capsule);
+    assert.strictEqual(res.verdict, 'REJECTED', `${capsule}: ${JSON.stringify(res.importViolations)}`);
+    assert.deepStrictEqual(res.reasons, ['ILLEGAL_CROSS_CAPSULE_IMPORT'], capsule);
+    assert.strictEqual(res.importViolations.length, 1, `${capsule}: ${JSON.stringify(res.importViolations)}`);
+  }
+  assert.match((await scan('inline')).importViolations[0].reason, /import type/);
+  assert.strictEqual((await scan('quiet')).verdict, 'FAST_TRACK');
+  console.log('✅ Escenario 8 (`//` en strings, backticks, template literals, `{ type X }` -> REJECTED): OK');
+
+  // ESCENARIO 9: Baseline real desde git cuando el PR renombra archivos internos
+  const repo = path.resolve(FIXTURES, 'repo');
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', ...args], {
+      cwd: repo,
+      stdio: 'ignore'
+    });
+  const capsuleAt = (name: string, helper: string, permissions: string) => ({
+    [`plugins/${name}/index.ts`]: `import { latency } from './${helper}.js';
+export const plugin = {
+  manifest: {
+    id: 'plugin-${name}', capability: 'cap.${name}', version: '1.0.0', mode: 'deterministic-js',
+    dependsOn: [], permissions: [${permissions}], inputSchema: {}, outputSchema: {},
+    budget: { maxLatencyMs: latency, maxTokensPerCall: 0 }
+  },
+  async selfTest() { return { passed: true, assertionsRun: 1, durationMs: 0, details: [] }; }
+};
+`,
+    [`plugins/${name}/${helper}.ts`]: 'export const latency = 50;\n'
+  });
+  const writeRepo = (files: Record<string, string>) => {
+    for (const [rel, content] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
+      fs.writeFileSync(path.join(repo, rel), content, 'utf-8');
+    }
+  };
+  fs.mkdirSync(repo, { recursive: true });
+  git('init', '-q', '-b', 'main');
+  writeRepo({ ...capsuleAt('renamed', 'old-helper', ''), ...capsuleAt('escalated', 'old-helper', '') });
+  git('add', '-A');
+  git('commit', '-q', '-m', 'base');
+  git('checkout', '-q', '-b', 'feature');
+  // El PR renombra el helper en ambas cápsulas; solo `escalated` además pide un permiso nuevo
+  fs.rmSync(path.join(repo, 'plugins/renamed/old-helper.ts'));
+  fs.rmSync(path.join(repo, 'plugins/escalated/old-helper.ts'));
+  writeRepo({ ...capsuleAt('renamed', 'new-helper', ''), ...capsuleAt('escalated', 'new-helper', `'fs:write'`) });
+  git('add', '-A');
+  git('commit', '-q', '-m', 'rename helper');
+
+  const repoConfig: GatekeeperConfig = { pluginsDir: 'plugins', entryFileName: 'index.ts', allowedExternalPackages: [], keyFlows: {} };
+  const previousCwd = process.cwd();
+  process.chdir(repo);
+  try {
+    const res9 = await runGatekeeper(repoConfig, { explicitFiles: ['plugins/renamed/index.ts'] });
+    assert.strictEqual(res9.verdict, 'FAST_TRACK', JSON.stringify(res9, null, 2));
+    assert.deepStrictEqual(res9.warnings, []);
+
+    const res9b = await runGatekeeper(repoConfig, { explicitFiles: ['plugins/escalated/index.ts'] });
+    assert.strictEqual(res9b.verdict, 'ESCALATE_TO_E2E', JSON.stringify(res9b, null, 2));
+    assert.deepStrictEqual(res9b.reasons, ['PERMISSIONS_ESCALATED']);
+
+    const res9c = await runGatekeeper(repoConfig, {});
+    assert.deepStrictEqual(res9c.touchedCapsules.sort(), ['escalated', 'renamed']);
+    assert.ok(res9c.reasons.includes('MULTIPLE_CAPSULES_TOUCHED'));
+
+    const leftovers = fs.readdirSync('plugins').filter(name => name.startsWith('.gatekeeper-base-'));
+    assert.deepStrictEqual(leftovers, []);
+  } finally {
+    process.chdir(previousCwd);
+  }
+  console.log('✅ Escenario 9 (Baseline desde git con archivo interno renombrado -> diff de manifest correcto): OK');
 
   console.log('\n🎉 Todos los escenarios deterministas pasaron exitosamente.');
 }
