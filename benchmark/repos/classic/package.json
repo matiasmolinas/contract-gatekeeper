@@ -1,0 +1,6 @@
+{
+  "name": "circuit-pilot-classic",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test test/" }
+}

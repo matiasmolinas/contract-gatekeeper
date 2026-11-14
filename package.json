@@ -30,7 +30,10 @@
     "check": "tsx src/cli.ts check",
     "test": "tsx test/gatekeeper.test.ts",
     "prepare": "npm run build",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm test",
+    "test:benchmark": "tsx benchmark/test/plumbing.test.ts",
+    "test:stories": "tsx benchmark/test/stories.test.ts",
+    "benchmark": "tsx benchmark/run.ts"
   },
   "repository": {
     "type": "git",

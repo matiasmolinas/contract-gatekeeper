@@ -1,0 +1,12 @@
+{
+  "schema": "cir/CircuitSpec/v1",
+  "id": "ia-galga500",
+  "target": "instrumentation_amplifier",
+  "gain": { "nominal": 500, "tolerancePct": 5 },
+  "bandwidthHz": 50000,
+  "cmrrMinDb": 90,
+  "supply": { "positiveV": 15, "negativeV": -15 },
+  "inputRangeV": { "minV": -0.002, "maxV": 0.002 },
+  "sourceImpedanceOhm": 350,
+  "constraints": { "resistorSeries": "E96", "monolithicAllowed": true, "opAmpModel": "generic-10mhz" }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "cir/CircuitSpec/v1",
+  "id": "ia-gain100-bw100k",
+  "target": "instrumentation_amplifier",
+  "gain": { "nominal": 100, "tolerancePct": 5 },
+  "bandwidthHz": 100000,
+  "cmrrMinDb": 80,
+  "supply": { "positiveV": 15, "negativeV": -15 },
+  "inputRangeV": { "minV": -0.01, "maxV": 0.01 },
+  "sourceImpedanceOhm": 350,
+  "constraints": {
+    "resistorSeries": "E96",
+    "monolithicAllowed": true,
+    "opAmpModel": "generic-10mhz"
+  }
+}

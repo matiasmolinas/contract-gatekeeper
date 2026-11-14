@@ -1,0 +1,16 @@
+{
+  "schema": "cir/CircuitSpec/v1",
+  "id": "ia-monolithic",
+  "target": "instrumentation_amplifier",
+  "gain": { "nominal": 50, "tolerancePct": 5 },
+  "bandwidthHz": 10000,
+  "cmrrMinDb": 100,
+  "supply": { "positiveV": 15, "negativeV": -15 },
+  "inputRangeV": { "minV": -0.01, "maxV": 0.01 },
+  "sourceImpedanceOhm": 350,
+  "constraints": {
+    "resistorSeries": "E96",
+    "monolithicAllowed": true,
+    "opAmpModel": "ina128-like"
+  }
+}

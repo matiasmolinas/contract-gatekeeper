@@ -40,6 +40,23 @@ export function getChangedFilesFromGit(baseRef: string, headRef: string): string
   }
 }
 
+/** Cambios sin commitear del working tree (modificados, staged y sin trackear). */
+export function getWorkingTreeChanges(): string[] {
+  try {
+    return git(['status', '--porcelain', '--untracked-files=all'])
+      .split('\n')
+      .filter(Boolean)
+      .map(line => {
+        const entry = line.slice(3).trim();
+        const renamed = entry.split(' -> ');
+        return (renamed[renamed.length - 1] ?? entry).replace(/^"|"$/g, '').replace(/\\/g, '/');
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 /** true si `ref` resuelve a un commit en el repositorio actual. */
 export function refExists(ref: string): boolean {
   try {

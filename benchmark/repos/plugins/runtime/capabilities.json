@@ -1,0 +1,11 @@
+{
+  "circuit.simulate": "plugins/circuit-solver/index.js",
+  "resistor.series": "plugins/resistor-series/index.js",
+  "circuit.ia.synthesize": "plugins/ia-synth/index.js",
+  "circuit.spec.parse": "plugins/spec-parser/index.js",
+  "circuit.design.verify": "plugins/design-verify/index.js",
+  "circuit.report.render": "plugins/report-render/index.js",
+  "contract.validate": "plugins/contract-schemas/index.js",
+  "circuit.design.pipeline": "plugins/design-pipeline/index.js",
+  "support.ticket.triage": "plugins/support-studio/index.js"
+}

@@ -99,13 +99,13 @@ For phase 5, the capsule as it was at the base ref is written to a temporary sib
 
 ```text
 contract-gatekeeper init
-contract-gatekeeper check [--base <ref>] [--head <ref>] [--files a,b] [--agent <id>] [--json]
+contract-gatekeeper check [--base <ref>] [--head <ref>] [--working-tree] [--files a,b] [--agent <id>] [--json]
 contract-gatekeeper lock <capsule> <agentId>
 contract-gatekeeper unlock <capsule> <agentId>
 contract-gatekeeper check-contention <capsule> [agentId]
 ```
 
-`check` exits with `1` on `REJECTED` and `0` otherwise. `--json` prints the full verdict:
+`--working-tree` adds uncommitted changes to the diff, for checking before a commit exists. `check` exits with `1` on `REJECTED` and `0` otherwise. `--json` prints the full verdict:
 
 ```json
 {
@@ -133,6 +133,10 @@ contract-gatekeeper check-contention <capsule> [agentId]
 - Locks live in a local `.gatekeeper-locks.json`. Agents in separate clones or worktrees do not share them, and `check` only enforces locks when `--agent` is passed.
 - A shared-file change re-verifies every capsule. Narrowing that to the capsules that actually import the file is not implemented yet.
 - The import scan is pattern-based, not a full parser. It reads string and template-literal specifiers (for `` import(`../x/${name}.js`) `` it judges the static directory prefix), but it cannot see `import(someVariable)`.
+
+## Benchmark
+
+`benchmark/` holds an A/B experiment that runs the same user stories with real coding agents on a layered codebase and on its capsule version. See [benchmark/README.md](benchmark/README.md) for the method and `benchmark/results/` for the data.
 
 ## Acknowledgements
 

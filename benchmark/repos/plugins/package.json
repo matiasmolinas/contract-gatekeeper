@@ -1,0 +1,11 @@
+{
+  "name": "circuit-pilot-plugins",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#runtime": "./runtime/registry.js"
+  },
+  "scripts": {
+    "test": "node --test \"plugins/*/test/*.test.js\" \"test/*.test.js\""
+  }
+}

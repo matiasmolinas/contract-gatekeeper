@@ -13,7 +13,7 @@ import type {
   SelfTestResult,
   VerdictStatus
 } from './types.js';
-import { getChangedFilesFromGit, listFilesAtRef, readBlobAtRef, refExists } from './git-inspector.js';
+import { getChangedFilesFromGit, getWorkingTreeChanges, listFilesAtRef, readBlobAtRef, refExists } from './git-inspector.js';
 import { scanCapsuleImports } from './import-scanner.js';
 import { resolveAffectedGraph } from './graph-resolver.js';
 import { readLocks } from './lock-manager.js';
@@ -24,6 +24,8 @@ export interface RunOptions {
   baseRef?: string;
   headRef?: string;
   explicitFiles?: string[];
+  /** Suma al diff los cambios sin commitear (chequeo pre-commit de un agente). */
+  includeWorkingTree?: boolean;
   agentId?: string;
   /**
    * Manifests de la rama base por nombre de cápsula. Si se omite, se leen de
@@ -67,7 +69,12 @@ export async function runGatekeeper(
   // FASE 1: Obtener archivos modificados
   const touchedFiles = Array.from(
     new Set(
-      (options.explicitFiles ?? getChangedFilesFromGit(baseRef, headRef))
+      (
+        options.explicitFiles ?? [
+          ...getChangedFilesFromGit(baseRef, headRef),
+          ...(options.includeWorkingTree ? getWorkingTreeChanges() : [])
+        ]
+      )
         .map(normalizePath)
         .filter(Boolean)
     )

@@ -33,34 +33,47 @@ const IMPORT_PATTERNS: RegExp[] = [
 ];
 
 /**
- * Quita los comentarios en una sola pasada, dejando intactos los strings y
- * template literals: un `//` dentro de un string no es un comentario y no
- * debe esconder un import que venga después en la misma línea.
+ * Recorre el fuente una sola vez y devuelve:
+ * - `text`: el código sin comentarios, con strings y template literals intactos
+ *   (un `//` dentro de un string no es un comentario y no debe esconder un
+ *   import que venga después en la misma línea);
+ * - `mask`: lo mismo, pero con el contenido de los strings en blanco, para
+ *   saber si una palabra clave está en código o dentro de un literal.
+ * Ambos tienen la misma longitud.
  */
-export function stripComments(source: string): string {
+function lex(source: string): { text: string; mask: string } {
   const n = source.length;
   const braceDepth: number[] = []; // una entrada por cada `${` abierto
-  let out = '';
+  let text = '';
+  let mask = '';
   let i = 0;
+  const code = (s: string) => {
+    text += s;
+    mask += s;
+  };
+  const literal = (s: string) => {
+    text += s;
+    mask += s.replace(/[^\n]/g, ' ');
+  };
 
   // Consume el cuerpo de un template literal hasta su cierre o hasta un `${`
   const readTemplate = () => {
     while (i < n) {
       const c = source[i];
       if (c === '\\') {
-        out += source.slice(i, i + 2);
+        literal(source.slice(i, i + 2));
         i += 2;
       } else if (c === '`') {
-        out += c;
+        code(c);
         i++;
         return;
       } else if (c === '$' && source[i + 1] === '{') {
-        out += '${';
+        code('${');
         i += 2;
         braceDepth.push(0);
         return;
       } else {
-        out += c;
+        literal(c);
         i++;
       }
     }
@@ -77,29 +90,32 @@ export function stripComments(source: string): string {
     if (c === '/' && next === '*') {
       const end = source.indexOf('*/', i + 2);
       const stop = end === -1 ? n : end + 2;
-      out += ' ' + source.slice(i, stop).replace(/[^\n]/g, '');
+      code(' ' + source.slice(i, stop).replace(/[^\n]/g, ''));
       i = stop;
       continue;
     }
     if (c === '"' || c === "'") {
-      out += c;
+      code(c);
       i++;
       while (i < n) {
         const e = source[i];
         if (e === '\\') {
-          out += source.slice(i, i + 2);
+          literal(source.slice(i, i + 2));
           i += 2;
           continue;
         }
         if (e === '\n') break; // string sin cerrar: el daño no pasa de esta línea
-        out += e;
         i++;
-        if (e === c) break;
+        if (e === c) {
+          code(e);
+          break;
+        }
+        literal(e);
       }
       continue;
     }
     if (c === '`') {
-      out += c;
+      code(c);
       i++;
       readTemplate();
       continue;
@@ -111,7 +127,7 @@ export function stripComments(source: string): string {
       } else if (c === '}') {
         if (braceDepth[top] === 0) {
           braceDepth.pop();
-          out += c;
+          code(c);
           i++;
           readTemplate();
           continue;
@@ -119,10 +135,15 @@ export function stripComments(source: string): string {
         braceDepth[top]--;
       }
     }
-    out += c;
+    code(c);
     i++;
   }
-  return out;
+  return { text, mask };
+}
+
+/** Código sin comentarios, con los strings intactos. */
+export function stripComments(source: string): string {
+  return lex(source).text;
 }
 
 function isInlineTypeOnlyClause(clause: string | undefined): boolean {
@@ -133,12 +154,14 @@ function isInlineTypeOnlyClause(clause: string | undefined): boolean {
 }
 
 function findImports(source: string): FoundImport[] {
-  const code = stripComments(source);
+  const { text: code, mask } = lex(source);
   const found: FoundImport[] = [];
   for (const regex of IMPORT_PATTERNS) {
     regex.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = regex.exec(code)) !== null) {
+      // La palabra clave tiene que estar en código: `['import', 'export']` no es un import
+      if (mask[match.index] === ' ') continue;
       const groups = match.groups ?? {};
       let spec = groups.spec;
       if (!spec) continue;

@@ -1,0 +1,21 @@
+{
+  "pluginsDir": "plugins",
+  "entryFileName": "index.js",
+  "allowedExternalPackages": [
+    "#runtime"
+  ],
+  "keyFlows": {
+    "design-instrumentation-amplifier": [
+      "circuit.design.pipeline"
+    ],
+    "simulate-netlist": [
+      "circuit.simulate"
+    ],
+    "validate-spec": [
+      "contract.validate"
+    ],
+    "support-ticket-triage": [
+      "support.ticket.triage"
+    ]
+  }
+}

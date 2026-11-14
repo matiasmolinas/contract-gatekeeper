@@ -8,7 +8,7 @@ import type { GatekeeperConfig, GatekeeperVerdict } from './types.js';
 
 const USAGE = `Uso:
   contract-gatekeeper init
-  contract-gatekeeper check [--base <ref>] [--head <ref>] [--files a,b] [--agent <id>] [--json]
+  contract-gatekeeper check [--base <ref>] [--head <ref>] [--working-tree] [--files a,b] [--agent <id>] [--json]
   contract-gatekeeper lock <capsule> <agentId>
   contract-gatekeeper unlock <capsule> <agentId>
   contract-gatekeeper check-contention <capsule> [agentId]`;
@@ -127,6 +127,7 @@ async function main() {
       baseRef,
       headRef,
       explicitFiles,
+      includeWorkingTree: args.includes('--working-tree'),
       agentId
     });
 

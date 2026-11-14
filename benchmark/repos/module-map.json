@@ -1,0 +1,58 @@
+{
+  "src/core/complex": {
+    "capability": "circuit.simulate",
+    "dir": "circuit-solver"
+  },
+  "src/core/linalg": {
+    "capability": "circuit.simulate",
+    "dir": "circuit-solver"
+  },
+  "src/core/mna": {
+    "capability": "circuit.simulate",
+    "dir": "circuit-solver"
+  },
+  "src/core/measure": {
+    "capability": "circuit.simulate",
+    "dir": "circuit-solver"
+  },
+  "src/core/montecarlo": {
+    "capability": "circuit.simulate",
+    "dir": "circuit-solver"
+  },
+  "src/core/e96": {
+    "capability": "resistor.series",
+    "dir": "resistor-series"
+  },
+  "src/core/ia": {
+    "capability": "circuit.ia.synthesize",
+    "dir": "ia-synth"
+  },
+  "src/core/spec": {
+    "capability": "circuit.spec.parse",
+    "dir": "spec-parser"
+  },
+  "src/core/verify": {
+    "capability": "circuit.design.verify",
+    "dir": "design-verify"
+  },
+  "src/core/report": {
+    "capability": "circuit.report.render",
+    "dir": "report-render"
+  },
+  "src/contract/schemas": {
+    "capability": "contract.validate",
+    "dir": "contract-schemas"
+  },
+  "src/contract/validate": {
+    "capability": "contract.validate",
+    "dir": "contract-schemas"
+  },
+  "src/core/pipeline": {
+    "capability": "circuit.design.pipeline",
+    "dir": "design-pipeline"
+  },
+  "src/support/support-core": {
+    "capability": "support.ticket.triage",
+    "dir": "support-studio"
+  }
+}

@@ -215,7 +215,7 @@ async function runTests() {
     'quiet/index.ts': pluginSource(
       'plugin-quiet',
       'cap.quiet',
-      `// import a from '../other/x.js';\n/* import b from '../other/x.js'; */\nconst url = 'https://example.com/a//b';\nvoid url;`
+      `// import a from '../other/x.js';\n/* import b from '../other/x.js'; */\nconst url = 'https://example.com/a//b';\nconst words = ['sync', 'import', 'export', 'link'];\nconst doc = "run require('../other/x.js') to load";\nvoid url; void words; void doc;`
     )
   });
   const scan = async (capsule: string) =>
