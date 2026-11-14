@@ -5,7 +5,7 @@
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveInside } from '../lib/agent.js';
+import { resolveInside, runAgent } from '../lib/agent.js';
 import { classicArm, pluginArm, runArm, type Story } from '../lib/harness.js';
 import type { ChatMessage, ChatProvider, ToolCall } from '../lib/llm.js';
 
@@ -80,6 +80,19 @@ async function main() {
   assert.throws(() => resolveInside(sandbox, '.git/config'), /not accessible/);
   assert.ok(resolveInside(sandbox, 'sub/new.txt').endsWith(path.join('sub', 'new.txt')));
   console.log('✅ Sandbox de rutas del agente: OK');
+
+  // --- Herramienta de búsqueda ----------------------------------------------
+  write(sandbox, { 'src/big.js': 'const a = 1\nexport function target(x) { return x }\nconst b = 2\n' });
+  const searchRun = await runAgent({
+    root: sandbox,
+    systemPrompt: 'test',
+    task: '[SEARCH]',
+    provider: scriptedProvider({ SEARCH: () => [call('search', { pattern: 'function \\w+\\(' }), call('search', { pattern: 'nope', path: 'src' }), call('search', { pattern: 'x', path: '../..' })] }),
+    checks: {}
+  });
+  assert.strictEqual(searchRun.searches, 2);
+  assert.deepStrictEqual(searchRun.turns.map(t => t.toolCalls[0].ok), [true, true, false, true]);
+  console.log('✅ Herramienta de búsqueda (regex, acotada al repo): OK');
 
   // --- Brazo clásico: dos historias en paralelo sobre el mismo archivo ------
   const classicSrc = path.join(WORK, 'src-classic');

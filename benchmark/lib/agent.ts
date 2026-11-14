@@ -90,6 +90,7 @@ export interface AgentRun {
   filesRead: string[];
   charsRead: number;
   filesWritten: string[];
+  searches: number;
   wallMs: number;
 }
 
@@ -121,6 +122,21 @@ const BASE_TOOLS: ToolSpec[] = [
           start_line: { type: 'integer', description: '1-based first line. Default 1' }
         },
         required: ['path']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search',
+      description: 'Search the repository for a regular expression. Returns matching lines as path:line: text (at most 60).',
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: 'JavaScript regular expression (case-sensitive).' },
+          path: { type: 'string', description: 'File or directory to search in. Default "."' }
+        },
+        required: ['pattern']
       }
     }
   },
@@ -231,6 +247,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
     filesRead: [],
     charsRead: 0,
     filesWritten: [],
+    searches: 0,
     wallMs: 0
   };
   const filesRead = new Set<string>();
@@ -254,6 +271,35 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
       return end < lines.length
         ? `${text}\n… (lines ${start}-${end} of ${lines.length}; call again with start_line=${end + 1})`
         : text;
+    }
+    if (name === 'search') {
+      if (typeof args.pattern !== 'string' || !args.pattern) throw new Error('pattern is required');
+      let regex: RegExp;
+      try {
+        regex = new RegExp(args.pattern);
+      } catch {
+        regex = new RegExp(args.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      }
+      const absRoot = fs.realpathSync(root);
+      const target = resolveInside(root, typeof args.path === 'string' && args.path ? args.path : '.');
+      const files = fs.statSync(target).isDirectory() ? listFiles(absRoot, target) : [path.relative(absRoot, target).replace(/\\/g, '/')];
+      const hits: string[] = [];
+      let total = 0;
+      for (const file of files) {
+        let lines: string[];
+        try {
+          lines = fs.readFileSync(path.join(absRoot, file), 'utf-8').split('\n');
+        } catch {
+          continue;
+        }
+        lines.forEach((line, index) => {
+          if (!regex.test(line)) return;
+          total++;
+          if (hits.length < 60) hits.push(`${file}:${index + 1}: ${line.trim().slice(0, 200)}`);
+        });
+      }
+      run.searches++;
+      return total === 0 ? 'no matches' : `${hits.join('\n')}${total > hits.length ? `\n… (${total - hits.length} more matches)` : ''}`;
     }
     if (name === 'write_file') {
       const file = resolveInside(root, args.path);

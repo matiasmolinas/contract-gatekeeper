@@ -1,0 +1,353 @@
+{
+  "startedAt": "2026-11-14T22:02:00.398Z",
+  "provider": "openrouter:deepseek/deepseek-v4-flash-0731",
+  "temperature": 0,
+  "runs": 3,
+  "arms": [
+    "coupled",
+    "classic",
+    "plugins"
+  ],
+  "stories": [
+    "S01",
+    "S02",
+    "S03",
+    "S04",
+    "S05",
+    "S06",
+    "S07",
+    "S08",
+    "S09",
+    "S10",
+    "S11",
+    "S12"
+  ],
+  "concurrency": 4,
+  "maxTurnsPerAttempt": 30,
+  "maxAttemptsPerStory": 3,
+  "systemPrompt": "You are a software engineer working alone in a git repository. Other engineers are changing the same repository in parallel.\n\nStart by reading ARCHITECTURE.md. Then make the change you are asked for:\n- Follow the conventions and rules of the repository.\n- Keep the existing tests passing and add tests for your change next to the existing ones.\n- Change only what the task needs.\n- Run the checks available to you before finishing, and call finish when they pass.",
+  "node": "v26.8.1",
+  "commit": "1f0aae5c5d30d90a785e2a16e97caffa135d15a4",
+  "dirtyTree": false,
+  "finishedAt": "2026-11-14T23:10:14.218Z",
+  "models": [
+    "deepseek/deepseek-v4-flash-0731"
+  ],
+  "perRun": [
+    {
+      "run": 1,
+      "arm": "coupled",
+      "metrics": {
+        "stories": 12,
+        "merged": 12,
+        "acceptedAtMerge": 12,
+        "acceptedFinal": 12,
+        "finalSuitePassed": true,
+        "attempts": 15,
+        "mergeConflicts": 1,
+        "gateFailures": 0,
+        "postMergeFailures": 0,
+        "agentErrors": 2,
+        "llmCalls": 260,
+        "llmCallsWithoutUsage": 0,
+        "promptTokens": 7751356,
+        "completionTokens": 88236,
+        "totalTokens": 7839592,
+        "cacheHitTokens": 6861824,
+        "costUsd": 0.365095,
+        "filesReadPerAttempt": 3.2,
+        "charsRead": 1999328,
+        "verificationMs": 10129,
+        "fullSuiteRuns": 22,
+        "lockWaitMs": 0,
+        "mergeQueueWaitMs": 270,
+        "wallMs": 462883,
+        "gatekeeperVerdicts": {}
+      },
+      "models": [
+        "deepseek/deepseek-v4-flash-0731"
+      ]
+    },
+    {
+      "run": 1,
+      "arm": "classic",
+      "metrics": {
+        "stories": 12,
+        "merged": 12,
+        "acceptedAtMerge": 12,
+        "acceptedFinal": 12,
+        "finalSuitePassed": true,
+        "attempts": 13,
+        "mergeConflicts": 1,
+        "gateFailures": 0,
+        "postMergeFailures": 0,
+        "agentErrors": 0,
+        "llmCalls": 160,
+        "llmCallsWithoutUsage": 0,
+        "promptTokens": 2270502,
+        "completionTokens": 127335,
+        "totalTokens": 2397837,
+        "cacheHitTokens": 1985536,
+        "costUsd": 0.147607,
+        "filesReadPerAttempt": 4.77,
+        "charsRead": 416650,
+        "verificationMs": 9824,
+        "fullSuiteRuns": 23,
+        "lockWaitMs": 0,
+        "mergeQueueWaitMs": 112,
+        "wallMs": 277290,
+        "gatekeeperVerdicts": {}
+      },
+      "models": [
+        "deepseek/deepseek-v4-flash-0731"
+      ]
+    },
+    {
+      "run": 1,
+      "arm": "plugins",
+      "metrics": {
+        "stories": 12,
+        "merged": 12,
+        "acceptedAtMerge": 12,
+        "acceptedFinal": 12,
+        "finalSuitePassed": true,
+        "attempts": 12,
+        "mergeConflicts": 0,
+        "gateFailures": 0,
+        "postMergeFailures": 0,
+        "agentErrors": 0,
+        "llmCalls": 137,
+        "llmCallsWithoutUsage": 0,
+        "promptTokens": 1700531,
+        "completionTokens": 132262,
+        "totalTokens": 1832793,
+        "cacheHitTokens": 1431808,
+        "costUsd": 0.084752,
+        "filesReadPerAttempt": 6.33,
+        "charsRead": 486229,
+        "verificationMs": 4407,
+        "fullSuiteRuns": 7,
+        "lockWaitMs": 203173,
+        "mergeQueueWaitMs": 0,
+        "wallMs": 456576,
+        "gatekeeperVerdicts": {
+          "FAST_TRACK": 8,
+          "ESCALATE_TO_E2E": 4
+        }
+      },
+      "models": [
+        "deepseek/deepseek-v4-flash-0731"
+      ]
+    },
+    {
+      "run": 2,
+      "arm": "classic",
+      "metrics": {
+        "stories": 12,
+        "merged": 12,
+        "acceptedAtMerge": 12,
+        "acceptedFinal": 12,
+        "finalSuitePassed": true,
+        "attempts": 13,
+        "mergeConflicts": 1,
+        "gateFailures": 0,
+        "postMergeFailures": 0,
+        "agentErrors": 0,
+        "llmCalls": 144,
+        "llmCallsWithoutUsage": 0,
+        "promptTokens": 1525241,
+        "completionTokens": 123062,
+        "totalTokens": 1648303,
+        "cacheHitTokens": 1190656,
+        "costUsd": 0.076618,
+        "filesReadPerAttempt": 5,
+        "charsRead": 473764,
+        "verificationMs": 9431,
+        "fullSuiteRuns": 22,
+        "lockWaitMs": 0,
+        "mergeQueueWaitMs": 660,
+        "wallMs": 379650,
+        "gatekeeperVerdicts": {}
+      },
+      "models": [
+        "deepseek/deepseek-v4-flash-0731"
+      ]
+    },
+    {
+      "run": 2,
+      "arm": "plugins",
+      "metrics": {
+        "stories": 12,
+        "merged": 12,
+        "acceptedAtMerge": 12,
+        "acceptedFinal": 12,
+        "finalSuitePassed": true,
+        "attempts": 12,
+        "mergeConflicts": 0,
+        "gateFailures": 0,
+        "postMergeFailures": 0,
+        "agentErrors": 0,
+        "llmCalls": 130,
+        "llmCallsWithoutUsage": 0,
+        "promptTokens": 1324939,
+        "completionTokens": 86373,
+        "totalTokens": 1411312,
+        "cacheHitTokens": 1095168,
+        "costUsd": 0.060475,
+        "filesReadPerAttempt": 5.92,
+        "charsRead": 404760,
+        "verificationMs": 4433,
+        "fullSuiteRuns": 7,
+        "lockWaitMs": 268834,
+        "mergeQueueWaitMs": 488,
+        "wallMs": 283322,
+        "gatekeeperVerdicts": {
+          "FAST_TRACK": 8,
+          "ESCALATE_TO_E2E": 4
+        }
+      },
+      "models": [
+        "deepseek/deepseek-v4-flash-0731"
+      ]
+    },
+    {
+      "run": 2,
+      "arm": "coupled",
+      "metrics": {
+        "stories": 12,
+        "merged": 12,
+        "acceptedAtMerge": 11,
+        "acceptedFinal": 11,
+        "finalSuitePassed": true,
+        "attempts": 15,
+        "mergeConflicts": 2,
+        "gateFailures": 1,
+        "postMergeFailures": 0,
+        "agentErrors": 0,
+        "llmCalls": 322,
+        "llmCallsWithoutUsage": 0,
+        "promptTokens": 11312861,
+        "completionTokens": 213084,
+        "totalTokens": 11525945,
+        "cacheHitTokens": 10228992,
+        "costUsd": 0.601922,
+        "filesReadPerAttempt": 3.8,
+        "charsRead": 2343355,
+        "verificationMs": 11061,
+        "fullSuiteRuns": 24,
+        "lockWaitMs": 0,
+        "mergeQueueWaitMs": 0,
+        "wallMs": 366698,
+        "gatekeeperVerdicts": {}
+      },
+      "models": [
+        "deepseek/deepseek-v4-flash-0731"
+      ]
+    },
+    {
+      "run": 3,
+      "arm": "plugins",
+      "metrics": {
+        "stories": 12,
+        "merged": 12,
+        "acceptedAtMerge": 12,
+        "acceptedFinal": 12,
+        "finalSuitePassed": true,
+        "attempts": 12,
+        "mergeConflicts": 0,
+        "gateFailures": 0,
+        "postMergeFailures": 0,
+        "agentErrors": 0,
+        "llmCalls": 161,
+        "llmCallsWithoutUsage": 0,
+        "promptTokens": 2396122,
+        "completionTokens": 128215,
+        "totalTokens": 2524337,
+        "cacheHitTokens": 2036736,
+        "costUsd": 0.13931,
+        "filesReadPerAttempt": 7.75,
+        "charsRead": 605765,
+        "verificationMs": 4770,
+        "fullSuiteRuns": 7,
+        "lockWaitMs": 328006,
+        "mergeQueueWaitMs": 0,
+        "wallMs": 293130,
+        "gatekeeperVerdicts": {
+          "FAST_TRACK": 8,
+          "ESCALATE_TO_E2E": 4
+        }
+      },
+      "models": [
+        "deepseek/deepseek-v4-flash-0731"
+      ]
+    },
+    {
+      "run": 3,
+      "arm": "coupled",
+      "metrics": {
+        "stories": 12,
+        "merged": 12,
+        "acceptedAtMerge": 12,
+        "acceptedFinal": 12,
+        "finalSuitePassed": true,
+        "attempts": 15,
+        "mergeConflicts": 2,
+        "gateFailures": 1,
+        "postMergeFailures": 0,
+        "agentErrors": 0,
+        "llmCalls": 319,
+        "llmCallsWithoutUsage": 0,
+        "promptTokens": 11129540,
+        "completionTokens": 278241,
+        "totalTokens": 11407781,
+        "cacheHitTokens": 9918976,
+        "costUsd": 0.477942,
+        "filesReadPerAttempt": 3.6,
+        "charsRead": 2299924,
+        "verificationMs": 11146,
+        "fullSuiteRuns": 24,
+        "lockWaitMs": 0,
+        "mergeQueueWaitMs": 0,
+        "wallMs": 1323691,
+        "gatekeeperVerdicts": {}
+      },
+      "models": [
+        "deepseek/deepseek-v4-flash-0731"
+      ]
+    },
+    {
+      "run": 3,
+      "arm": "classic",
+      "metrics": {
+        "stories": 12,
+        "merged": 12,
+        "acceptedAtMerge": 12,
+        "acceptedFinal": 12,
+        "finalSuitePassed": true,
+        "attempts": 14,
+        "mergeConflicts": 2,
+        "gateFailures": 0,
+        "postMergeFailures": 0,
+        "agentErrors": 0,
+        "llmCalls": 144,
+        "llmCallsWithoutUsage": 0,
+        "promptTokens": 1832289,
+        "completionTokens": 125372,
+        "totalTokens": 1957661,
+        "cacheHitTokens": 1591808,
+        "costUsd": 0.089846,
+        "filesReadPerAttempt": 4.86,
+        "charsRead": 483124,
+        "verificationMs": 8925,
+        "fullSuiteRuns": 21,
+        "lockWaitMs": 0,
+        "mergeQueueWaitMs": 0,
+        "wallMs": 250314,
+        "gatekeeperVerdicts": {}
+      },
+      "models": [
+        "deepseek/deepseek-v4-flash-0731"
+      ]
+    }
+  ]
+}

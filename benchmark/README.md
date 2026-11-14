@@ -39,9 +39,24 @@ Expectations, stated in advance:
 
 If these do not hold, the results are reported as they came out.
 
+## Protocol revision 2: a search tool (added after the first three-arm run)
+
+The first three-arm run is in `results/2026-11-14T22-02-00/`. `coupled` used several times the tokens of the other two arms, but the raw data shows the agent loop was part of the reason, so that figure overstates the effect:
+
+- The agent had no way to search. Across the three runs, agents in `coupled` tried to call a `grep` tool that did not exist 58 times, against 7 in each of the other arms, and then paged through the 4,300-line file 400 lines at a time. Any real coding agent can search.
+- Six `coupled` attempts hit the 30-turn limit, against one in `classic` and none in `plugins`. An attempt that hits the limit is still gated and merged if it passes, so the limit both caps the tokens `coupled` could spend and explains its one incorrect story.
+
+Revision 2 adds one tool to the loop, `search` (a regular-expression search over the repository), for all arms. Nothing else changes: same trees, stories, prompts, limits and gates. This section was written before running it.
+
+Expectations for revision 2:
+
+1. `coupled` still costs more tokens than `classic`, but by a smaller factor than in the first three-arm run.
+2. `classic` and `plugins` stay close to each other.
+3. Fewer attempts hit the turn limit in every arm.
+
 ## What an agent does
 
-Each story is implemented by an agent in its own `git worktree`, branched from the current `main`. The agent has a small tool loop: list files, read a file, write a file, replace text, run the checks, finish. It decides what to read, so the context it consumes is the context it asked for. Both arms get the same system prompt and each tree has an `ARCHITECTURE.md` generated from the same module descriptions.
+Each story is implemented by an agent in its own `git worktree`, branched from the current `main`. The agent has a small tool loop: list files, read a file, search (from revision 2), write a file, replace text, run the checks, finish. It decides what to read, so the context it consumes is the context it asked for. Both arms get the same system prompt and each tree has an `ARCHITECTURE.md` generated from the same module descriptions.
 
 Up to four agents run at once. When an agent finishes, its branch goes through the arm's gate and then a serialized `git merge` into `main`. A merge conflict, a failed gate or a failed post-merge check sends the story back for another attempt on the updated `main`, up to three attempts. The tokens of every attempt count.
 
