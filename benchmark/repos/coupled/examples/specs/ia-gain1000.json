@@ -1,0 +1,16 @@
+{
+  "schema": "cir/CircuitSpec/v1",
+  "id": "ia-gain1000",
+  "target": "instrumentation_amplifier",
+  "gain": { "nominal": 1000, "tolerancePct": 5 },
+  "bandwidthHz": 2000,
+  "cmrrMinDb": 90,
+  "supply": { "positiveV": 15, "negativeV": -15 },
+  "inputRangeV": { "minV": -0.005, "maxV": 0.005 },
+  "sourceImpedanceOhm": 350,
+  "constraints": {
+    "resistorSeries": "E96",
+    "monolithicAllowed": true,
+    "opAmpModel": "generic-10mhz"
+  }
+}

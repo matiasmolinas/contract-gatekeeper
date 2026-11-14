@@ -6,6 +6,8 @@ This file was written before the first full run. Results live in `results/`, one
 
 ## What is compared
 
+The table shows the two original arms; the third is described in the next section.
+
 | | `classic` | `plugins` |
 | --- | --- | --- |
 | Code | `repos/classic/` | `repos/plugins/` |
@@ -18,6 +20,24 @@ This file was written before the first full run. Results live in `results/`, one
 `repos/classic/` is the circuit-design pilot this project grew out of (an MNA circuit solver, instrumentation-amplifier synthesis, verification, reporting, and a customer-support module), about 7,000 lines with 142 tests. It was not written for this benchmark and it is already modular, so it is a strong baseline rather than a strawman.
 
 `repos/plugins/` is **generated** from `repos/classic/` by `repos/build-plugins-tree.mjs`: the same code and the same tests, regrouped into capsules along the real import graph. The script adds only what the architecture requires (manifests, self-tests, the registry). Read the script to see exactly how the two arms differ; `--check` verifies the committed tree matches it.
+
+## Third arm: `coupled` (added after the first run)
+
+The first full run compared `classic` and `plugins` only (`results/2026-11-14T21-30-15/`). The two came out close on tokens, and the likeliest reason is that `classic` is already modular: one module per concern, no shared state, tests per module. That run stays published as it is.
+
+To separate what modularity buys from what contracts add on top, a third arm was added afterwards, and this section was written before running it:
+
+- `repos/coupled/` is **generated** from `repos/classic/` by `repos/build-coupled-tree.mjs`: the same code in one source file (`src/app.js`, about 4,300 lines) and the same tests in one test file. Module-local helpers whose names collide are renamed with a suffix; nothing else changes. It uses the same gate as `classic` (full suite before and after merge).
+- It is a mild form of coupling: big files and a single place every story writes to. It has no shared mutable state and no hidden side effects between modules, which is what hurts most in a real monolith and cannot be produced mechanically without inventing code.
+
+Expectations, stated in advance:
+
+1. `coupled` uses more tokens and more turns than `classic`, because an agent has to page through a large file to find and re-read code.
+2. `coupled` has more real merge conflicts than `classic`, because every story edits the same two files.
+3. `classic` and `plugins` stay close to each other on tokens, as in the first run.
+4. All three arms deliver correct results (hidden acceptance tests) at about the same rate.
+
+If these do not hold, the results are reported as they came out.
 
 ## What an agent does
 
@@ -62,9 +82,11 @@ npm install
 npm run test:benchmark                       # harness, with a scripted model
 npx tsx benchmark/test/stories.test.ts       # every story: fails on base, passes with reference
 node benchmark/repos/build-plugins-tree.mjs --check
+node benchmark/repos/build-coupled-tree.mjs --check
 
 export OPENROUTER_API_KEY=...                # or DEEPSEEK_API_KEY
-npx tsx benchmark/run.ts --runs 3
+npx tsx benchmark/run.ts --runs 3                                  # classic vs plugins
+npx tsx benchmark/run.ts --runs 3 --arms coupled,classic,plugins   # three arms
 ```
 
 By default the run uses `deepseek/deepseek-v4-flash-0731` through OpenRouter, a dated snapshot, so a re-run addresses the same model. `BENCH_MODEL` overrides it. The model the API reports is stored with every call.

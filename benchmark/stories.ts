@@ -393,7 +393,7 @@ test('S12 summary of a failing design', () => {
 
 // ---------------------------------------------------------------------------
 
-export type ArmName = 'classic' | 'plugins';
+export type ArmName = 'coupled' | 'classic' | 'plugins';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -408,11 +408,21 @@ export function pluginPath(classicFile: string): string {
   return owner ? `plugins/${owner.dir}/lib/${path.basename(classicFile)}` : classicFile;
 }
 
+/** Ruta de un archivo del árbol clásico en el árbol acoplado, y la sección que le corresponde ahí. */
+export function coupledPath(classicFile: string): { file: string; section: string | null } {
+  return classicFile === 'src/cli.js'
+    ? { file: classicFile, section: null }
+    : { file: 'src/app.js', section: path.basename(classicFile, '.js') };
+}
+
 /** Fuente del test de aceptación de una historia para un brazo (va en `test/`). */
 export function acceptanceSource(story: StoryDef, arm: ArmName): string {
   const header = ["import test from 'node:test'", "import assert from 'node:assert/strict'"];
   if (arm === 'classic') {
     for (const use of story.uses) header.push(`import { ${use.names.join(', ')} } from '../${use.module}.js'`);
+  } else if (arm === 'coupled') {
+    const names = story.uses.flatMap(use => use.names);
+    if (names.length > 0) header.push(`import { ${names.join(', ')} } from '../src/app.js'`);
   } else if (story.uses.length > 0) {
     header.push("import { load } from '#runtime'");
     for (const use of story.uses) {

@@ -38,6 +38,7 @@ Start by reading ARCHITECTURE.md. Then make the change you are asked for:
 - Run the checks available to you before finishing, and call finish when they pass.`;
 
 const SUITE: Record<ArmName, string[]> = {
+  coupled: ['node', '--test', 'test/'],
   classic: ['node', '--test', 'test/'],
   plugins: ['node', '--test', 'plugins/*/test/*.test.js', 'test/*.test.js']
 };
@@ -50,8 +51,8 @@ function buildArm(name: ArmName): Arm {
     acceptanceDir: 'test',
     acceptanceCommand: (file: string) => ['node', '--test', file]
   };
-  return name === 'classic'
-    ? classicArm(common)
+  return name !== 'plugins'
+    ? classicArm({ ...common, name })
     : pluginArm({ ...common, gatekeeperCommand: ['node', path.join(ROOT, 'dist/cli.js')] });
 }
 
@@ -129,8 +130,9 @@ async function main() {
 
   const perRun: { run: number; arm: ArmName; metrics: ReturnType<typeof metrics>; models: string[] }[] = [];
   for (let run = 1; run <= RUNS; run++) {
-    // Se alterna qué brazo va primero para no cargarle a uno solo los efectos de horario
-    const order = run % 2 === 1 ? ARMS : [...ARMS].reverse();
+    // Se rota qué brazo va primero para no cargarle a uno solo los efectos de horario
+    const shift = (run - 1) % ARMS.length;
+    const order = [...ARMS.slice(shift), ...ARMS.slice(0, shift)];
     for (const armName of order) {
       const workDir = path.join(workRoot, `run${run}-${armName}`);
       const acceptanceDir = path.join(workRoot, `acceptance-run${run}-${armName}`);

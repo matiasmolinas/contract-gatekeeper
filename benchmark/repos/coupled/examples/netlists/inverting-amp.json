@@ -1,0 +1,10 @@
+{
+  "schema": "cir/Netlist/v1",
+  "nodes": ["in", "n", "out", "0"],
+  "elements": [
+    { "type": "V", "name": "V1", "a": "in", "b": "0", "valueV": 1 },
+    { "type": "R", "name": "R1", "a": "in", "b": "n", "valueOhm": 1000 },
+    { "type": "R", "name": "Rf", "a": "n", "b": "out", "valueOhm": 10000 },
+    { "type": "OPAMP", "name": "U1", "inP": "0", "inN": "n", "out": "out", "gain": 1000000, "poleHz": 1 }
+  ]
+}

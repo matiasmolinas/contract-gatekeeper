@@ -1,0 +1,9 @@
+{
+  "schema": "cir/Netlist/v1",
+  "nodes": ["in", "out", "0"],
+  "elements": [
+    { "type": "V", "name": "V1", "a": "in", "b": "0", "valueV": 1 },
+    { "type": "R", "name": "R1", "a": "in", "b": "out", "valueOhm": 1000 },
+    { "type": "C", "name": "C1", "a": "out", "b": "0", "valueF": 1.5915494309189534e-7 }
+  ]
+}

@@ -342,6 +342,8 @@ export async function runArm(
 // ---------------------------------------------------------------------------
 
 export interface ClassicArmOptions {
+  /** Nombre del brazo; por defecto 'classic'. */
+  name?: string;
   sourceDir: string;
   systemPrompt: string;
   suiteCommand: string[];

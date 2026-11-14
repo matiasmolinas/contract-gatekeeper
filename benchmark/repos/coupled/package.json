@@ -1,0 +1,8 @@
+{
+  "name": "circuit-pilot-coupled",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

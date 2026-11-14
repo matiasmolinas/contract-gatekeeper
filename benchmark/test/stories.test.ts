@@ -6,26 +6,38 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import { exec } from '../lib/agent.js';
-import { STORIES, acceptanceSource, pluginPath, type ArmName, type StoryDef } from '../stories.js';
+import { STORIES, acceptanceSource, coupledPath, pluginPath, type ArmName, type StoryDef } from '../stories.js';
 
 const ROOT = process.cwd();
 const WORK = path.join(ROOT, 'benchmark/.work', `stories-${process.pid}`);
 const GATEKEEPER = [path.join(ROOT, 'node_modules/.bin/tsx'), path.join(ROOT, 'src/cli.ts')];
 const SUITE: Record<ArmName, string[]> = {
+  coupled: ['node', '--test', 'test/'],
   classic: ['node', '--test', 'test/'],
   plugins: ['node', '--test', 'plugins/*/test/*.test.js', 'test/*.test.js']
 };
 
 function applyReference(dir: string, arm: ArmName, story: StoryDef) {
   for (const { file, edits } of story.reference) {
-    const target = path.join(dir, arm === 'classic' ? file : pluginPath(file));
-    let source = fs.readFileSync(target, 'utf-8');
+    const coupled = arm === 'coupled' ? coupledPath(file) : null;
+    const target = path.join(dir, coupled ? coupled.file : arm === 'classic' ? file : pluginPath(file));
+    const whole = fs.readFileSync(target, 'utf-8');
+    // En el árbol acoplado la edición se limita a la sección que venía de ese módulo
+    let start = 0;
+    let end = whole.length;
+    if (coupled?.section) {
+      start = whole.indexOf(`/* ===== ${coupled.section} ===== */`);
+      assert.ok(start !== -1, `${story.id}: no existe la sección ${coupled.section}`);
+      const next = whole.indexOf('/* ===== ', start + 10);
+      end = next === -1 ? whole.length : next;
+    }
+    let source = whole.slice(start, end);
     for (const [from, to] of edits) {
       const count = source.split(from).length - 1;
       assert.strictEqual(count, 1, `${story.id}: el texto a reemplazar aparece ${count} veces en ${file}: ${from.slice(0, 60)}`);
       source = source.replace(from, () => to);
     }
-    fs.writeFileSync(target, source, 'utf-8');
+    fs.writeFileSync(target, whole.slice(0, start) + source + whole.slice(end), 'utf-8');
   }
   if (arm === 'plugins' && story.newExports) {
     // En plugins el contrato es explícito: los exports nuevos se declaran en el manifest
@@ -40,7 +52,7 @@ function applyReference(dir: string, arm: ArmName, story: StoryDef) {
 
 async function main() {
   fs.rmSync(WORK, { recursive: true, force: true });
-  for (const arm of ['classic', 'plugins'] as ArmName[]) {
+  for (const arm of ['coupled', 'classic', 'plugins'] as ArmName[]) {
     for (const story of STORIES) {
       const dir = path.join(WORK, arm, story.id);
       fs.cpSync(path.join(ROOT, 'benchmark/repos', arm), dir, { recursive: true });
