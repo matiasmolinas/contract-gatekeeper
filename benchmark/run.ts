@@ -11,9 +11,10 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { classicArm, pluginArm, runArm, type Arm, type ArmResult, type Story } from './lib/harness.js';
+import { classicArm, pluginArm, runArm, type Arm, type Story } from './lib/harness.js';
 import { createProviderFromEnv } from './lib/llm.js';
-import { STORIES, acceptanceSource, type ArmName } from './stories.js';
+import { median, metrics } from './lib/metrics.js';
+import { STORIES, acceptanceSource, treeOf, type ArmName } from './stories.js';
 
 const ROOT = process.cwd();
 const flag = (name: string, fallback: string) => {
@@ -40,68 +41,21 @@ Start by reading ARCHITECTURE.md. Then make the change you are asked for:
 const SUITE: Record<ArmName, string[]> = {
   coupled: ['node', '--test', 'test/'],
   classic: ['node', '--test', 'test/'],
-  plugins: ['node', '--test', 'plugins/*/test/*.test.js', 'test/*.test.js']
+  plugins: ['node', '--test', 'plugins/*/test/*.test.js', 'test/*.test.js'],
+  'plugins-nolock': ['node', '--test', 'plugins/*/test/*.test.js', 'test/*.test.js']
 };
 
 function buildArm(name: ArmName): Arm {
   const common = {
-    sourceDir: path.join(ROOT, 'benchmark/repos', name),
+    sourceDir: path.join(ROOT, 'benchmark/repos', treeOf(name)),
     systemPrompt: SYSTEM_PROMPT,
     suiteCommand: SUITE[name],
     acceptanceDir: 'test',
     acceptanceCommand: (file: string) => ['node', '--test', file]
   };
-  return name !== 'plugins'
+  return treeOf(name) !== 'plugins'
     ? classicArm({ ...common, name })
-    : pluginArm({ ...common, gatekeeperCommand: ['node', path.join(ROOT, 'dist/cli.js')] });
-}
-
-const median = (values: number[]) => {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length === 0 ? 0 : sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-};
-
-/** Métricas de un brazo en una corrida, todas derivadas del resultado crudo. */
-function metrics(result: ArmResult) {
-  const attempts = result.stories.flatMap(s => s.attempts);
-  const outcome = (o: string) => attempts.filter(a => a.outcome === o).length;
-  const fullSuite = (detail: Record<string, unknown> | undefined) =>
-    detail && (detail.check === 'full-suite' || typeof detail.escalatedSuiteMs === 'number') ? 1 : 0;
-  const verdicts: Record<string, number> = {};
-  for (const a of attempts) {
-    const verdict = a.gate?.detail.verdict;
-    if (typeof verdict === 'string') verdicts[verdict] = (verdicts[verdict] ?? 0) + 1;
-  }
-  return {
-    stories: result.stories.length,
-    merged: result.stories.filter(s => s.merged).length,
-    acceptedAtMerge: result.stories.filter(s => s.acceptanceAtMerge).length,
-    acceptedFinal: result.stories.filter(s => s.acceptanceFinal).length,
-    finalSuitePassed: result.finalSuite.passed,
-    attempts: attempts.length,
-    mergeConflicts: outcome('merge_conflict'),
-    gateFailures: outcome('gate_failed'),
-    postMergeFailures: outcome('post_merge_failed'),
-    agentErrors: outcome('agent_error') + outcome('no_changes'),
-    llmCalls: result.usage.calls,
-    llmCallsWithoutUsage: result.usage.callsWithoutUsage,
-    promptTokens: result.usage.promptTokens,
-    completionTokens: result.usage.completionTokens,
-    totalTokens: result.usage.totalTokens,
-    cacheHitTokens: result.usage.cacheHitTokens,
-    costUsd: Number(result.usage.costUsd.toFixed(6)),
-    filesReadPerAttempt: Number((attempts.reduce((n, a) => n + a.agent.filesRead.length, 0) / Math.max(1, attempts.length)).toFixed(2)),
-    charsRead: attempts.reduce((n, a) => n + a.agent.charsRead, 0),
-    searches: attempts.reduce((n, a) => n + (a.agent.searches ?? 0), 0),
-    attemptsCutOffAtTurnLimit: attempts.filter(a => a.agent.stopReason === 'max_turns').length,
-    verificationMs: attempts.reduce((n, a) => n + (a.gate?.ms ?? 0) + (a.postMerge?.ms ?? 0), 0),
-    fullSuiteRuns: attempts.reduce((n, a) => n + fullSuite(a.gate?.detail) + fullSuite(a.postMerge?.detail), 0),
-    lockWaitMs: result.stories.reduce((n, s) => n + s.lockWaitMs, 0),
-    mergeQueueWaitMs: attempts.reduce((n, a) => n + a.mergeQueueWaitMs, 0),
-    wallMs: result.wallMs,
-    gatekeeperVerdicts: verdicts
-  };
+    : pluginArm({ ...common, name, locks: name !== 'plugins-nolock', gatekeeperCommand: ['node', path.join(ROOT, 'dist/cli.js')] });
 }
 
 async function main() {

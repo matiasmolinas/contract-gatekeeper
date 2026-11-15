@@ -54,6 +54,22 @@ Expectations for revision 2:
 2. `classic` and `plugins` stay close to each other.
 3. Fewer attempts hit the turn limit in every arm.
 
+## What the partial results changed in the design (written before the pooled revision-2 runs)
+
+After the first runs the design was reviewed against the data. What was found, and what was changed:
+
+- **Run-to-run noise is large.** With the same code, stories and model, the tokens of one story vary by up to 16 times between runs, and an arm's total varies with a coefficient of variation of about 21 %. Three runs per arm can only detect differences of roughly 40 % or more. So revision 2 is run in more than one batch and analysed pooled (`analyze.ts`), with a bootstrap interval on every comparison. Differences smaller than the interval are reported as not detected, not as zero.
+- **The capsule lock is the main behavioural difference between `classic` and `plugins`**, and it is confounded with everything else the plugin arm does. A fourth arm, `plugins-nolock`, uses the same capsule tree and the same gatekeeper gate but takes no lock: stories on one capsule run in parallel and git decides.
+- **Not changed:** the trees, the stories, the prompts, the limits and the gates. Changing those after seeing results would make every later number suspect.
+
+Two limits of the stories became clear and are left as they are: the prompts name the functions to change, which makes the code easy to locate in any layout, and five of the twelve stories target one capsule, which drives both the conflict count and the lock wait.
+
+Expectations for `plugins-nolock`, stated in advance:
+
+1. It has real merge conflicts at about the rate of `classic`, since the same files are edited concurrently.
+2. Its wall-clock time drops to about that of `classic`.
+3. It keeps the low number of full-suite runs of `plugins`, and the same correctness.
+
 ## What an agent does
 
 Each story is implemented by an agent in its own `git worktree`, branched from the current `main`. The agent has a small tool loop: list files, read a file, search (from revision 2), write a file, replace text, run the checks, finish. It decides what to read, so the context it consumes is the context it asked for. Both arms get the same system prompt and each tree has an `ARCHITECTURE.md` generated from the same module descriptions.

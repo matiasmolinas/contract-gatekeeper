@@ -33,7 +33,8 @@
     "prepublishOnly": "npm test",
     "test:benchmark": "tsx benchmark/test/plumbing.test.ts",
     "test:stories": "tsx benchmark/test/stories.test.ts",
-    "benchmark": "tsx benchmark/run.ts"
+    "benchmark": "tsx benchmark/run.ts",
+    "benchmark:analyze": "tsx benchmark/analyze.ts"
   },
   "repository": {
     "type": "git",

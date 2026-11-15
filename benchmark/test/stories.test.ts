@@ -11,7 +11,7 @@ import { STORIES, acceptanceSource, coupledPath, pluginPath, type ArmName, type 
 const ROOT = process.cwd();
 const WORK = path.join(ROOT, 'benchmark/.work', `stories-${process.pid}`);
 const GATEKEEPER = [path.join(ROOT, 'node_modules/.bin/tsx'), path.join(ROOT, 'src/cli.ts')];
-const SUITE: Record<ArmName, string[]> = {
+const SUITE: Record<Exclude<ArmName, 'plugins-nolock'>, string[]> = {
   coupled: ['node', '--test', 'test/'],
   classic: ['node', '--test', 'test/'],
   plugins: ['node', '--test', 'plugins/*/test/*.test.js', 'test/*.test.js']
@@ -52,7 +52,7 @@ function applyReference(dir: string, arm: ArmName, story: StoryDef) {
 
 async function main() {
   fs.rmSync(WORK, { recursive: true, force: true });
-  for (const arm of ['coupled', 'classic', 'plugins'] as ArmName[]) {
+  for (const arm of ['coupled', 'classic', 'plugins'] as const) {
     for (const story of STORIES) {
       const dir = path.join(WORK, arm, story.id);
       fs.cpSync(path.join(ROOT, 'benchmark/repos', arm), dir, { recursive: true });

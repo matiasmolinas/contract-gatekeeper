@@ -393,7 +393,10 @@ test('S12 summary of a failing design', () => {
 
 // ---------------------------------------------------------------------------
 
-export type ArmName = 'coupled' | 'classic' | 'plugins';
+export type ArmName = 'coupled' | 'classic' | 'plugins' | 'plugins-nolock';
+
+/** Árbol de código que usa cada brazo (`plugins-nolock` usa el mismo que `plugins`). */
+export const treeOf = (arm: ArmName): 'coupled' | 'classic' | 'plugins' => (arm === 'plugins-nolock' ? 'plugins' : arm);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -416,7 +419,8 @@ export function coupledPath(classicFile: string): { file: string; section: strin
 }
 
 /** Fuente del test de aceptación de una historia para un brazo (va en `test/`). */
-export function acceptanceSource(story: StoryDef, arm: ArmName): string {
+export function acceptanceSource(story: StoryDef, armName: ArmName): string {
+  const arm = treeOf(armName);
   const header = ["import test from 'node:test'", "import assert from 'node:assert/strict'"];
   if (arm === 'classic') {
     for (const use of story.uses) header.push(`import { ${use.names.join(', ')} } from '../${use.module}.js'`);

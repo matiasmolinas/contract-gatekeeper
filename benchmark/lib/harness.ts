@@ -374,6 +374,8 @@ export function classicArm(options: ClassicArmOptions): Arm {
 export interface PluginArmOptions extends ClassicArmOptions {
   /** Prefijo del comando del gatekeeper, p. ej. ['node', '/abs/dist/cli.js'] */
   gatekeeperCommand: string[];
+  /** false = sin locks de cápsula: las historias corren en paralelo y git decide. Por defecto true. */
+  locks?: boolean;
 }
 
 /**
@@ -386,7 +388,7 @@ export function pluginArm(options: PluginArmOptions): Arm {
   const suite = (cwd: string) => exec(options.suiteCommand[0], options.suiteCommand.slice(1), { cwd });
 
   return {
-    name: 'plugins',
+    name: options.name ?? 'plugins',
     sourceDir: options.sourceDir,
     systemPrompt: options.systemPrompt,
     suiteCommand: options.suiteCommand,
@@ -461,7 +463,7 @@ export function pluginArm(options: PluginArmOptions): Arm {
         detail: { check: 'full-suite', exitCode: result.code }
       };
     },
-    lock: {
+    lock: options.locks === false ? undefined : {
       acquire: (repo, key, agentId) => exec(gk, [...gkArgs, 'lock', key, agentId], { cwd: repo }),
       release: (repo, key, agentId) => exec(gk, [...gkArgs, 'unlock', key, agentId], { cwd: repo })
     }
