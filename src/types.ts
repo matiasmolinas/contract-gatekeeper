@@ -46,13 +46,34 @@ export interface GatekeeperPluginModule {
 }
 
 /**
+ * Un flujo de usuario con lo que un runner de navegador necesita para caminarlo:
+ * dónde empieza y cómo se ve "terminado". Sin atar la config a ninguna herramienta.
+ */
+export interface KeyFlowConfig {
+  capabilities: string[];                // Capabilities que intervienen en el flujo
+  entryUrl?: string;                     // Dónde empieza, ej: "/checkout"
+  done?: string;                         // Cómo se ve terminado, ej: "Order confirmation is visible"
+}
+
+/** Forma corta (solo las capabilities) o forma completa. */
+export type KeyFlowDefinition = string[] | KeyFlowConfig;
+
+/** Un flujo afectado, tal como lo recibe un runner. */
+export interface AffectedKeyFlow {
+  name: string;
+  capabilities: string[];
+  entryUrl?: string;
+  done?: string;
+}
+
+/**
  * Configuración declarativa del repositorio (`gatekeeper.config.json`).
  */
 export interface GatekeeperConfig {
   pluginsDir: string;                    // Ej: "examples/plugins" o "src/plugins"
   entryFileName: string;                 // Ej: "index.ts"
   allowedExternalPackages: string[];     // Paquetes npm permitidos sin escalar, ej: ["cordis", "koffi"]
-  keyFlows: Record<string, string[]>;    // Mapa: NombreDelKeyFlow -> Lista de capabilities que intervienen
+  keyFlows: Record<string, KeyFlowDefinition>; // NombreDelKeyFlow -> capabilities, o { capabilities, entryUrl, done }
 }
 
 export type VerdictStatus = 'FAST_TRACK' | 'ESCALATE_TO_E2E' | 'REJECTED';
@@ -92,7 +113,8 @@ export interface GatekeeperVerdict {
   outOfCapsuleFiles: string[];
   contractMutated: boolean;
   affectedCapabilities: string[];
-  affectedKeyFlows: string[];            // Lista exacta de flujos que ShipGuarde / Playwright debe correr
+  affectedKeyFlows: string[];            // Nombres de los flujos que ShipGuarde / Playwright debe correr
+  affectedKeyFlowDetails: AffectedKeyFlow[]; // Los mismos flujos con su entryUrl y done, cuando la config los declara
   selfTestReports: Record<string, SelfTestResult>;
   importViolations: ImportViolation[];   // Detalle de cada ILLEGAL_CROSS_CAPSULE_IMPORT
   warnings: string[];                    // Fases omitidas o cápsulas que no se pudieron cargar

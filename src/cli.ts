@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { cleanupTempArtifacts, runGatekeeper } from './engine.js';
+import { keyFlowErrors } from './graph-resolver.js';
 import { acquireLock, checkContention, releaseLock } from './lock-manager.js';
 import type { GatekeeperConfig, GatekeeperVerdict } from './types.js';
 
@@ -29,6 +30,11 @@ function loadConfig(): GatekeeperConfig {
   }
   if (typeof config.pluginsDir !== 'string' || typeof config.entryFileName !== 'string') {
     console.error('❌ Error: gatekeeper.config.json requiere "pluginsDir" y "entryFileName".');
+    process.exit(2);
+  }
+  const flowErrors = keyFlowErrors(config);
+  if (flowErrors.length > 0) {
+    for (const message of flowErrors) console.error(`❌ Error: gatekeeper.config.json: ${message}`);
     process.exit(2);
   }
   return config;
@@ -164,6 +170,11 @@ function printHumanReadable(v: GatekeeperVerdict) {
   console.log(`Out-of-Capsule Files: ${v.outOfCapsuleFiles.length ? v.outOfCapsuleFiles.join(', ') : 'None'}`);
   console.log(`Contract Mutated:     ${v.contractMutated ? 'Yes' : 'No'}`);
   console.log(`Affected Key Flows:   ${v.affectedKeyFlows.length ? v.affectedKeyFlows.join(', ') : 'None (Global E2E Skipped)'}`);
+  for (const flow of v.affectedKeyFlowDetails) {
+    if (flow.entryUrl || flow.done) {
+      console.log(`  ${flow.name}: starts at ${flow.entryUrl ?? '(not declared)'} · done when: ${flow.done ?? '(not declared)'}`);
+    }
+  }
   console.log('----------------------------------------------------------------------');
   for (const [pluginId, report] of Object.entries(v.selfTestReports)) {
     console.log(

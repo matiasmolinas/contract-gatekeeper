@@ -1,6 +1,6 @@
 {
   "name": "contract-gatekeeper",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Deterministic pre-PR and CI contract verifier for parallel coding agents",
   "type": "module",
   "bin": {

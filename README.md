@@ -37,11 +37,17 @@ npx tsx src/cli.ts check --files src/shared/styles.css
   "entryFileName": "index.ts",
   "allowedExternalPackages": ["@nestjs/common", "zod"],
   "keyFlows": {
-    "checkout": ["billing.invoice.create", "cart.total.compute"],
+    "checkout": {
+      "capabilities": ["billing.invoice.create", "cart.total.compute"],
+      "entryUrl": "/checkout",
+      "done": "Order confirmation screen is visible"
+    },
     "support-triage": ["support.ticket.triage"]
   }
 }
 ```
+
+A key flow is either a list of capabilities or an object that also says where the flow starts (`entryUrl`) and what done looks like (`done`). Both are optional and both are plain text: the gatekeeper does not interpret them, it hands them to whatever runs the browser check, so the config is not tied to one tool.
 
 2. Make every folder under `pluginsDir` a capsule whose entry file exports a manifest and a self-test:
 
@@ -116,6 +122,15 @@ contract-gatekeeper check-contention <capsule> [agentId]
   "outOfCapsuleFiles": [],
   "contractMutated": true,
   "affectedKeyFlows": ["customer-support-triage-dock", "full-workspace-composer"],
+  "affectedKeyFlowDetails": [
+    {
+      "name": "customer-support-triage-dock",
+      "capabilities": ["support.ticket.triage"],
+      "entryUrl": "/support-studio",
+      "done": "The triage card shows a category, an urgency and a drafted reply"
+    },
+    { "name": "full-workspace-composer", "capabilities": ["electronics.amplifier.solve", "support.ticket.triage"] }
+  ],
   "importViolations": [],
   "warnings": []
 }
@@ -123,7 +138,7 @@ contract-gatekeeper check-contention <capsule> [agentId]
 
 ## CI
 
-`.github/workflows/gatekeeper.yml` runs the check on every pull request and exposes `verdict` and `key_flows` as job outputs. A second job runs only when the verdict is `ESCALATE_TO_E2E`; that is where a real-browser runner or Playwright suite plugs in, scoped to the affected flows.
+`.github/workflows/gatekeeper.yml` runs the check on every pull request and exposes `verdict` and `key_flows` as job outputs. A second job runs only when the verdict is `ESCALATE_TO_E2E`; that is where a real-browser runner or Playwright suite plugs in, scoped to the affected flows. It also receives `key_flow_details`: each affected flow with its `entryUrl` and `done` when the config declares them.
 
 ## Limits to know about
 

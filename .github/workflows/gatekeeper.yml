@@ -10,6 +10,7 @@ jobs:
     outputs:
       verdict: ${{ steps.gate.outputs.verdict }}
       key_flows: ${{ steps.gate.outputs.key_flows }}
+      key_flow_details: ${{ steps.gate.outputs.key_flow_details }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,6 +37,7 @@ jobs:
           echo "$REPORT"
           echo "verdict=$(echo "$REPORT" | jq -r '.verdict')" >> "$GITHUB_OUTPUT"
           echo "key_flows=$(echo "$REPORT" | jq -c '.affectedKeyFlows')" >> "$GITHUB_OUTPUT"
+          echo "key_flow_details=$(echo "$REPORT" | jq -c '.affectedKeyFlowDetails')" >> "$GITHUB_OUTPUT"
           exit $STATUS
 
   browser-e2e-check:
@@ -47,6 +49,9 @@ jobs:
       - name: Trigger Real-Browser Check (ShipGuarde / Playwright) on Affected Key Flows
         env:
           KEY_FLOWS: ${{ needs.contract-gate.outputs.key_flows }}
+          KEY_FLOW_DETAILS: ${{ needs.contract-gate.outputs.key_flow_details }}
         run: |
           echo "🟡 Frontera cruzada. Ejecutando verificación de navegador SOLO en los flujos afectados:"
           echo "$KEY_FLOWS"
+          # Cada flujo trae dónde empieza (entryUrl) y cómo se ve terminado (done), si la config lo declara
+          echo "$KEY_FLOW_DETAILS" | jq -r '.[] | "\(.name): \(.entryUrl // "-") → \(.done // "-")"'

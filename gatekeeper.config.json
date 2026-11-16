@@ -1,10 +1,27 @@
 {
   "pluginsDir": "examples/plugins",
   "entryFileName": "index.ts",
-  "allowedExternalPackages": ["cordis", "koffi", "node:fs", "node:path", "node:crypto"],
+  "allowedExternalPackages": [
+    "cordis",
+    "koffi",
+    "node:fs",
+    "node:path",
+    "node:crypto"
+  ],
   "keyFlows": {
-    "instrumentation-amplifier-bench": ["electronics.amplifier.solve"],
-    "customer-support-triage-dock": ["support.ticket.triage"],
-    "full-workspace-composer": ["electronics.amplifier.solve", "support.ticket.triage"]
+    "instrumentation-amplifier-bench": [
+      "electronics.amplifier.solve"
+    ],
+    "customer-support-triage-dock": {
+      "capabilities": [
+        "support.ticket.triage"
+      ],
+      "entryUrl": "/support-studio",
+      "done": "The triage card shows a category, an urgency and a drafted reply"
+    },
+    "full-workspace-composer": [
+      "electronics.amplifier.solve",
+      "support.ticket.triage"
+    ]
   }
 }

@@ -293,6 +293,39 @@ export const plugin = {
   }
   console.log('✅ Escenario 9 (Baseline desde git con archivo interno renombrado -> diff de manifest correcto): OK');
 
+  // ESCENARIO 10: Un flujo declara dónde empieza y cómo se ve terminado
+  const res10 = await runGatekeeper(config, { explicitFiles: ['src/shared/global.css'] });
+  assert.deepStrictEqual(res10.affectedKeyFlowDetails, [
+    { name: 'instrumentation-amplifier-bench', capabilities: ['electronics.amplifier.solve'] },
+    {
+      name: 'customer-support-triage-dock',
+      capabilities: ['support.ticket.triage'],
+      entryUrl: '/support-studio',
+      done: 'The triage card shows a category, an urgency and a drafted reply'
+    },
+    { name: 'full-workspace-composer', capabilities: ['electronics.amplifier.solve', 'support.ticket.triage'] }
+  ]);
+  // Los nombres siguen saliendo igual que antes: quien solo lee `affectedKeyFlows` no nota el cambio
+  assert.deepStrictEqual(res10.affectedKeyFlows, res10.affectedKeyFlowDetails.map(flow => flow.name));
+  // FAST_TRACK no pide ningún flujo, en ninguna de las dos formas
+  assert.deepStrictEqual(res1.affectedKeyFlowDetails, []);
+
+  // Una config mal formada falla con un mensaje claro, no con un flujo ignorado en silencio
+  const badFlows: [string, unknown][] = [
+    ['capabilities', { 'flow-x': { entryUrl: '/x' } }],
+    ['entryUrl', { 'flow-x': { capabilities: ['cap.a'], entryUrl: 42 } }],
+    ['campo desconocido', { 'flow-x': { capabilities: ['cap.a'], url: '/x' } }],
+    ['arreglo de capabilities', { 'flow-x': 'cap.a' }]
+  ];
+  for (const [expected, keyFlows] of badFlows) {
+    await assert.rejects(
+      runGatekeeper({ ...config, keyFlows: keyFlows as GatekeeperConfig['keyFlows'] }, { explicitFiles: [] }),
+      (err: Error) => err.message.includes(expected),
+      `se esperaba un error que mencione "${expected}"`
+    );
+  }
+  console.log('✅ Escenario 10 (Flujos con entryUrl y done; forma corta intacta; config inválida -> error claro): OK');
+
   console.log('\n🎉 Todos los escenarios deterministas pasaron exitosamente.');
 }
 
