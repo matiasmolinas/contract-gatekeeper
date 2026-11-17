@@ -5,12 +5,15 @@ import path from 'node:path';
 import { cleanupTempArtifacts, runGatekeeper } from './engine.js';
 import { keyFlowErrors } from './graph-resolver.js';
 import { selectionConfigErrors } from './test-selector.js';
+import { shadowRecord, summarizeShadow } from './shadow.js';
 import { acquireLock, checkContention, releaseLock } from './lock-manager.js';
 import type { GatekeeperConfig, GatekeeperVerdict } from './types.js';
 
 const USAGE = `Uso:
   contract-gatekeeper init
   contract-gatekeeper check [--base <ref>] [--head <ref>] [--working-tree] [--files a,b] [--agent <id>] [--json]
+  contract-gatekeeper shadow --verdict <verdict.json> --suite-exit <code> [--failed-tests a,b | --failed-tests-file <file>] --out <shadow.jsonl>
+  contract-gatekeeper shadow-summary <shadow.jsonl> [--json]
   contract-gatekeeper lock <capsule> <agentId>
   contract-gatekeeper unlock <capsule> <agentId>
   contract-gatekeeper check-contention <capsule> [agentId]`;
@@ -116,6 +119,60 @@ async function main() {
     }
     console.log(`✅ Sin contención sobre '${capsule}'.`);
     process.exit(0);
+  }
+
+  if (command === 'shadow') {
+    const verdictFile = getFlagValue(args, '--verdict');
+    const exitArg = getFlagValue(args, '--suite-exit');
+    const out = getFlagValue(args, '--out');
+    if (!verdictFile || exitArg === undefined || !/^-?\d+$/.test(exitArg) || !out) {
+      console.error('Uso: contract-gatekeeper shadow --verdict <verdict.json> --suite-exit <code> [--failed-tests a,b | --failed-tests-file <file>] --out <shadow.jsonl>');
+      process.exit(2);
+    }
+    let verdict: GatekeeperVerdict;
+    try {
+      const raw = fs.readFileSync(verdictFile, 'utf-8');
+      verdict = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
+      if (typeof verdict.verdict !== 'string') throw new Error('no "verdict" field');
+    } catch (err) {
+      console.error(`❌ Error: no se pudo leer el veredicto de '${verdictFile}' (${(err as Error).message}).`);
+      process.exit(2);
+    }
+    const listArg = getFlagValue(args, '--failed-tests');
+    const listFile = getFlagValue(args, '--failed-tests-file');
+    const failedTests = listFile
+      ? fs.readFileSync(listFile, 'utf-8').split(/[\n,]/)
+      : listArg !== undefined
+        ? listArg.split(',')
+        : undefined;
+    const record = shadowRecord(verdict, {
+      exitCode: Number(exitArg),
+      failedTests: failedTests?.map(s => s.trim()).filter(Boolean)
+    });
+    fs.appendFileSync(out, JSON.stringify(record) + '\n', 'utf-8');
+    console.log(JSON.stringify(record));
+    process.exit(0);
+  }
+
+  if (command === 'shadow-summary') {
+    const file = args[1];
+    if (!file || !fs.existsSync(file)) {
+      console.error('Uso: contract-gatekeeper shadow-summary <shadow.jsonl> [--json]');
+      process.exit(2);
+    }
+    const summary = summarizeShadow(fs.readFileSync(file, 'utf-8').split('\n'));
+    if (args.includes('--json')) {
+      console.log(JSON.stringify(summary, null, 2));
+    } else {
+      const pct = (r: number) => `${(r * 100).toFixed(1)} %`;
+      console.log(`Shadow runs:            ${summary.runs}${summary.unreadableLines ? ` (${summary.unreadableLines} unreadable lines skipped)` : ''}`);
+      console.log(`FAST_TRACK verdicts:    ${summary.fastTracks}`);
+      console.log(`Full-suite failures:    ${summary.fullSuiteFailures}`);
+      console.log(`Misses:                 ${summary.misses} (verdict ${summary.verdictMisses}, selection ${summary.selectionMisses}; unknown selection ${summary.selectionUnknown})`);
+      console.log(`Miss rate on FAST_TRACK: ${pct(summary.missRateAmongFastTracks)}`);
+      console.log(`Could have been narrowed: ${summary.narrowable} of ${summary.runs} (${pct(summary.narrowableShare)})`);
+    }
+    process.exit(summary.unreadableLines > 0 ? 1 : 0);
   }
 
   if (command === 'check') {

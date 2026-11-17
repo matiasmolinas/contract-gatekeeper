@@ -57,3 +57,49 @@ jobs:
           echo "$KEY_FLOWS"
           # Cada flujo trae dónde empieza (entryUrl) y cómo se ve terminado (done), si la config lo declara
           echo "$KEY_FLOW_DETAILS" | jq -r '.[] | "\(.name): \(.entryUrl // "-") → \(.done // "-")"'
+
+  # Modo sombra (opt-in): con la variable de repositorio GATEKEEPER_SHADOW=1, un FAST_TRACK
+  # corre igual la batería completa y deja una línea JSON que dice si el veredicto o la
+  # selección de tests se habrían perdido una falla. Solo mide: no cambia el veredicto
+  # requerido y nunca bloquea el PR (continue-on-error).
+  shadow:
+    needs: contract-gate
+    if: vars.GATEKEEPER_SHADOW == '1' && needs.contract-gate.outputs.verdict == 'FAST_TRACK'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Gatekeeper verdict
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: npx tsx src/cli.ts check --base "$BASE_REF" --head HEAD --json > gatekeeper-verdict.json || true
+
+      - name: Full test suite, regardless of the verdict
+        id: suite
+        env:
+          # Comando de la batería completa; GATEKEEPER_SHADOW_SUITE lo reemplaza
+          SUITE: ${{ vars.GATEKEEPER_SHADOW_SUITE || 'npm test' }}
+        run: |
+          set +e
+          bash -c "$SUITE"
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Record the shadow line
+        env:
+          SUITE_EXIT: ${{ steps.suite.outputs.exit_code }}
+        run: |
+          npx tsx src/cli.ts shadow --verdict gatekeeper-verdict.json --suite-exit "${SUITE_EXIT:-1}" --out gatekeeper-shadow.jsonl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gatekeeper-shadow
+          path: gatekeeper-shadow.jsonl

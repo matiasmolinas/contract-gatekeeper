@@ -6,6 +6,7 @@ import path from 'node:path';
 import { runGatekeeper } from '../src/engine.js';
 import { acquireLock, releaseLock } from '../src/lock-manager.js';
 import { selectTests } from '../src/test-selector.js';
+import { shadowRecord, summarizeShadow } from '../src/shadow.js';
 import type { GatekeeperConfig, PluginManifest, SelectedTest } from '../src/types.js';
 
 const config: GatekeeperConfig = JSON.parse(fs.readFileSync('./gatekeeper.config.json', 'utf-8'));
@@ -398,6 +399,53 @@ export const plugin = {
   await assert.rejects(runGatekeeper({ ...config, testFilePatterns: 'x' as unknown as string[] }, { explicitFiles: [] }), /testFilePatterns/);
   await assert.rejects(runGatekeeper({ ...config, extraInputs: { calc: { 'a.json': 'x' } } as never }, { explicitFiles: [] }), /extraInputs/);
   console.log('✅ Escenario 11 (Selección: dueño, consumidor transitivo, test cambiado; lo desconocido amplía a fallback-all): OK');
+
+  // ESCENARIO 12: Modo sombra — ¿el veredicto o la selección se habrían perdido una falla?
+  const mathTest = `${cfg11.pluginsDir}/calc/test/math.test.ts`;
+  const green = shadowRecord(res11, { exitCode: 0 });
+  assert.strictEqual(green.miss, false);
+  assert.strictEqual(green.selectionMiss, null);
+  const caught = shadowRecord(res11, { exitCode: 1, failedTests: [`./${mathTest}`] });
+  assert.strictEqual(caught.verdictMiss, true); // FAST_TRACK con la batería en rojo
+  assert.strictEqual(caught.selectionMiss, false); // pero la selección incluía el test que falló
+  assert.strictEqual(caught.miss, true);
+  const outside = shadowRecord(res11b, { exitCode: 1, failedTests: ['test/elsewhere.test.ts'] });
+  assert.strictEqual(outside.verdictMiss, false); // ESCALATE corre la batería completa
+  assert.deepStrictEqual(outside.failedOutsideSelection, ['test/elsewhere.test.ts']);
+  assert.strictEqual(outside.miss, true);
+  const unknownFailed = shadowRecord(res11b, { exitCode: 1 });
+  assert.strictEqual(unknownFailed.miss, false);
+  assert.strictEqual(unknownFailed.selectionMiss, null);
+
+  const lines = [green, caught, outside, unknownFailed].map(r => JSON.stringify(r));
+  assert.deepStrictEqual(summarizeShadow([...lines, '', 'not json']), {
+    runs: 4,
+    unreadableLines: 1,
+    fastTracks: 2,
+    fullSuiteFailures: 3,
+    misses: 2,
+    verdictMisses: 1,
+    selectionMisses: 1,
+    selectionUnknown: 1,
+    narrowable: 1, // solo `green`: unknownFailed no se cuenta como seguro
+    narrowableShare: 0.25,
+    missRateAmongFastTracks: 0.5
+  });
+
+  // CLI: la línea se agrega al archivo y el resumen la lee
+  const shadowDir = path.join(FIXTURES, 'shadow');
+  fs.mkdirSync(shadowDir, { recursive: true });
+  fs.writeFileSync(path.join(shadowDir, 'verdict.json'), JSON.stringify(res11), 'utf-8');
+  const cli = (...cliArgs: string[]) =>
+    execFileSync(path.resolve('node_modules/.bin/tsx'), [path.resolve('src/cli.ts'), ...cliArgs], { encoding: 'utf-8' });
+  const jsonl = path.join(shadowDir, 'shadow.jsonl');
+  for (const exit of ['0', '1']) {
+    cli('shadow', '--verdict', path.join(shadowDir, 'verdict.json'), '--suite-exit', exit, '--failed-tests', exit === '1' ? mathTest : '', '--out', jsonl);
+  }
+  assert.strictEqual(fs.readFileSync(jsonl, 'utf-8').trim().split('\n').length, 2);
+  const cliSummary = JSON.parse(cli('shadow-summary', jsonl, '--json'));
+  assert.deepStrictEqual([cliSummary.runs, cliSummary.fastTracks, cliSummary.misses, cliSummary.narrowable], [2, 2, 1, 1]);
+  console.log('✅ Escenario 12 (Modo sombra: miss por veredicto y por selección; resumen y CLI): OK');
 
   console.log('\n🎉 Todos los escenarios deterministas pasaron exitosamente.');
 }

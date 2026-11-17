@@ -132,6 +132,8 @@ Two optional config fields tune it; configs without them behave as before:
 ```text
 contract-gatekeeper init
 contract-gatekeeper check [--base <ref>] [--head <ref>] [--working-tree] [--files a,b] [--agent <id>] [--json]
+contract-gatekeeper shadow --verdict <verdict.json> --suite-exit <code> [--failed-tests a,b | --failed-tests-file <file>] --out <shadow.jsonl>
+contract-gatekeeper shadow-summary <shadow.jsonl> [--json]
 contract-gatekeeper lock <capsule> <agentId>
 contract-gatekeeper unlock <capsule> <agentId>
 contract-gatekeeper check-contention <capsule> [agentId]
@@ -167,6 +169,41 @@ contract-gatekeeper check-contention <capsule> [agentId]
 ## CI
 
 `.github/workflows/gatekeeper.yml` runs the check on every pull request and exposes `verdict` and `key_flows` as job outputs. A second job runs only when the verdict is `ESCALATE_TO_E2E`; that is where a real-browser runner or Playwright suite plugs in, scoped to the affected flows. It also receives `key_flow_details`: each affected flow with its `entryUrl` and `done` when the config declares them. The gate job also exposes `selected_tests`, the JSON list of selected tests, for a runner that wants to run only those.
+
+## Shadow mode
+
+Before trusting a narrowing verdict, measure it. Shadow mode runs the full suite anyway and records whether the verdict, or the test selection, would have missed a failure:
+
+```bash
+contract-gatekeeper check --base main --json > verdict.json
+npm test; SUITE_EXIT=$?
+contract-gatekeeper shadow --verdict verdict.json --suite-exit $SUITE_EXIT \
+  [--failed-tests a.test.ts,b.test.ts | --failed-tests-file failed.txt] --out shadow.jsonl
+contract-gatekeeper shadow-summary shadow.jsonl [--json]
+```
+
+`shadow` appends one JSON line (abridged here; it also carries `recordedAt`, `baseRef` and `headRef`):
+
+```json
+{
+  "verdict": "FAST_TRACK",
+  "reasons": ["STRICT_CAPSULE_INTERNAL_CHANGE"],
+  "touchedCapsules": ["support-studio"],
+  "selectedTests": ["plugins/support-studio/test/support.test.ts"],
+  "selectionWidened": false,
+  "fullSuiteExitCode": 1,
+  "fullSuiteFailed": true,
+  "failedTests": ["plugins/report-render/test/report.test.ts"],
+  "failedOutsideSelection": ["plugins/report-render/test/report.test.ts"],
+  "verdictMiss": true,
+  "selectionMiss": true,
+  "miss": true
+}
+```
+
+A **miss** is a red full suite where the verdict was `FAST_TRACK` (`verdictMiss`), or where a failing test was outside `selectedTests` (`selectionMiss`). Without a list of failed tests, `selectionMiss` is `null`: unknown, never counted as safe. `shadow-summary` reports the runs, `FAST_TRACK`s, misses, the miss rate among `FAST_TRACK`s, and the share of runs that could have been narrowed (a `FAST_TRACK` or a selection without `fallback-all`, with no miss and nothing unknown). It exits with `1` if the file has unreadable lines.
+
+In CI it is opt-in: set the repository variable `GATEKEEPER_SHADOW` to `1`. The `shadow` job then runs the full suite on every `FAST_TRACK` (the command is `npm test`, or the repository variable `GATEKEEPER_SHADOW_SUITE`) and uploads `gatekeeper-shadow.jsonl` as an artifact. The job is `continue-on-error` and nothing depends on it, so it never changes the required verdict or blocks a PR. Download the artifacts and concatenate them to summarize many PRs.
 
 ## Limits to know about
 
