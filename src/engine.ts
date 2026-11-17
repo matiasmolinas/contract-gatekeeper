@@ -33,6 +33,12 @@ export interface RunOptions {
    * git (`baseRef:<pluginsDir>/<capsule>/<entryFileName>`).
    */
   baselineManifests?: Record<string, PluginManifest>;
+  /**
+   * Repositorio donde correr git, si no es el directorio actual. Lo usa `replay`:
+   * evalúa un árbol materializado de `headRef` y lee git del repositorio real.
+   * Con esta opción un diff que falla es un error, no una caída al working tree.
+   */
+  gitCwd?: string;
 }
 
 const REJECTING: ClassificationReason[] = [
@@ -74,7 +80,7 @@ export async function runGatekeeper(
     new Set(
       (
         options.explicitFiles ?? [
-          ...getChangedFilesFromGit(baseRef, headRef),
+          ...getChangedFilesFromGit(baseRef, headRef, options.gitCwd),
           ...(options.includeWorkingTree ? getWorkingTreeChanges() : [])
         ]
       )
@@ -198,7 +204,7 @@ export async function runGatekeeper(
 
   // FASE 5: Detección de Mutación de Contrato (Manifest Diff)
   const baselineFromGit = options.baselineManifests === undefined;
-  const gitBaselineAvailable = baselineFromGit && touchedCapsules.length > 0 && refExists(baseRef);
+  const gitBaselineAvailable = baselineFromGit && touchedCapsules.length > 0 && refExists(baseRef, options.gitCwd);
   if (baselineFromGit && touchedCapsules.length > 0 && !gitBaselineAvailable) {
     warnings.push(
       `Base ref '${baseRef}' could not be resolved: manifest diff (phase 5) was skipped.`
@@ -215,7 +221,7 @@ export async function runGatekeeper(
       base = options.baselineManifests![capsule];
       baseKnown = base !== undefined;
     } else if (gitBaselineAvailable) {
-      const loaded = await loadManifestAtRef(config, capsule, baseRef);
+      const loaded = await loadManifestAtRef(config, capsule, baseRef, options.gitCwd);
       if (loaded.error) {
         // Sin baseline no se puede probar que el contrato sigue igual: se escala, no se deja pasar
         contractMutated = true;
@@ -379,6 +385,15 @@ let baselineCounter = 0;
  * al terminar; esto es para quien deba salir a mitad de una ejecución (el CLI
  * lo llama al recibir SIGINT/SIGTERM).
  */
+export function trackTempArtifact(dir: string): void {
+  tempArtifacts.add(dir);
+}
+
+export function untrackTempArtifact(dir: string): void {
+  fs.rmSync(dir, { recursive: true, force: true });
+  tempArtifacts.delete(dir);
+}
+
 export function cleanupTempArtifacts(): void {
   for (const dir of tempArtifacts) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -396,10 +411,11 @@ export function cleanupTempArtifacts(): void {
 async function loadManifestAtRef(
   config: GatekeeperConfig,
   capsule: string,
-  ref: string
+  ref: string,
+  gitCwd?: string
 ): Promise<{ manifest?: PluginManifest; error?: string }> {
   const capsuleRel = `${normalizePath(config.pluginsDir).replace(/\/+$/, '')}/${capsule}`;
-  const files = listFilesAtRef(ref, capsuleRel);
+  const files = listFilesAtRef(ref, capsuleRel, gitCwd);
   if (!files.includes(`${capsuleRel}/${config.entryFileName}`)) return {};
 
   const tmpDir = path.resolve(
@@ -410,7 +426,7 @@ async function loadManifestAtRef(
   tempArtifacts.add(tmpDir);
   try {
     for (const file of files) {
-      const blob = readBlobAtRef(ref, file);
+      const blob = readBlobAtRef(ref, file, gitCwd);
       if (!blob) continue;
       const target = path.join(tmpDir, file.slice(capsuleRel.length + 1));
       fs.mkdirSync(path.dirname(target), { recursive: true });

@@ -6,6 +6,7 @@ import { cleanupTempArtifacts, runGatekeeper } from './engine.js';
 import { keyFlowErrors } from './graph-resolver.js';
 import { selectionConfigErrors } from './test-selector.js';
 import { shadowRecord, summarizeShadow } from './shadow.js';
+import { parseReplayCases, runReplay } from './replay.js';
 import { acquireLock, checkContention, releaseLock } from './lock-manager.js';
 import type { GatekeeperConfig, GatekeeperVerdict } from './types.js';
 
@@ -14,6 +15,7 @@ const USAGE = `Uso:
   contract-gatekeeper check [--base <ref>] [--head <ref>] [--working-tree] [--files a,b] [--agent <id>] [--json]
   contract-gatekeeper shadow --verdict <verdict.json> --suite-exit <code> [--failed-tests a,b | --failed-tests-file <file>] --out <shadow.jsonl>
   contract-gatekeeper shadow-summary <shadow.jsonl> [--json]
+  contract-gatekeeper replay <cases.json> [--json]
   contract-gatekeeper lock <capsule> <agentId>
   contract-gatekeeper unlock <capsule> <agentId>
   contract-gatekeeper check-contention <capsule> [agentId]`;
@@ -173,6 +175,40 @@ async function main() {
       console.log(`Could have been narrowed: ${summary.narrowable} of ${summary.runs} (${pct(summary.narrowableShare)})`);
     }
     process.exit(summary.unreadableLines > 0 ? 1 : 0);
+  }
+
+  if (command === 'replay') {
+    const file = args[1];
+    if (!file || !fs.existsSync(file)) {
+      console.error('Uso: contract-gatekeeper replay <cases.json> [--json]');
+      process.exit(2);
+    }
+    let raw: unknown;
+    try {
+      raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch (err) {
+      console.error(`❌ Error: '${file}' no es JSON válido (${(err as Error).message}).`);
+      process.exit(2);
+    }
+    const { cases, errors } = parseReplayCases(raw);
+    if (errors.length > 0) {
+      for (const message of errors) console.error(`❌ Error: ${file}: ${message}`);
+      process.exit(2);
+    }
+    const fallback = fs.existsSync(path.resolve(process.cwd(), 'gatekeeper.config.json')) ? loadConfig() : undefined;
+    const outcomes = await runReplay(cases, fallback);
+    if (args.includes('--json')) {
+      console.log(JSON.stringify(outcomes, null, 2));
+    } else {
+      for (const o of outcomes) {
+        const detail = o.verdict ? `${o.verdict}, ${o.selectedTests.length} tests selected` : 'not evaluated';
+        console.log(`${o.ok ? '✅' : '❌'} ${o.name}: ${detail}`);
+        for (const failure of o.failures) console.log(`   ${failure}`);
+      }
+      const failed = outcomes.filter(o => !o.ok).length;
+      console.log(`${outcomes.length - failed} of ${outcomes.length} replay cases passed.`);
+    }
+    process.exit(outcomes.every(o => o.ok) ? 0 : 1);
   }
 
   if (command === 'check') {

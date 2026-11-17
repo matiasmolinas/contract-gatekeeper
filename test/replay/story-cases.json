@@ -1,0 +1,17 @@
+{
+  "description": "Replay cases built from the benchmark stories (benchmark/stories.ts). test/replay.test.ts builds a git repository from benchmark/repos/plugins with the base tree on main and each story's reference solution on story/<id>. A story that crosses a capsule boundary or changes a contract must escalate; one internal to a capsule must select its capsule's tests.",
+  "cases": [
+    { "name": "S01 wiki search key bonus (support-studio, internal)", "base": "main", "head": "story/S01", "mustSelect": ["plugins/support-studio/test/support.test.js"] },
+    { "name": "S02 wiki article crash (support-studio, internal)", "base": "main", "head": "story/S02", "mustSelect": ["plugins/support-studio/test/support.test.js"] },
+    { "name": "S03 rate-limit priority (support-studio, internal)", "base": "main", "head": "story/S03", "mustSelect": ["plugins/support-studio/test/support.test.js"] },
+    { "name": "S04 redact secrets (support-studio, new export)", "base": "main", "head": "story/S04", "mustEscalate": true, "mustSelect": ["plugins/support-studio/test/support.test.js"] },
+    { "name": "S05 Spanish urgency terms (support-studio, internal)", "base": "main", "head": "story/S05", "mustSelect": ["plugins/support-studio/test/support.test.js"] },
+    { "name": "S06 E24 series (resistor-series, new exports)", "base": "main", "head": "story/S06", "mustEscalate": true, "mustSelect": ["plugins/resistor-series/test/e96.test.js"] },
+    { "name": "S07 milliohm formatting (resistor-series, internal)", "base": "main", "head": "story/S07", "mustSelect": ["plugins/resistor-series/test/e96.test.js"] },
+    { "name": "S08 gigahertz formatting (report-render, internal)", "base": "main", "head": "story/S08", "mustSelect": ["plugins/report-render/test/report.test.js"] },
+    { "name": "S09 failed checks in the report (design-verify and contract-schemas)", "base": "main", "head": "story/S09", "mustEscalate": true, "mustSelect": ["plugins/design-verify/test/verify.test.js", "plugins/contract-schemas/test/contract.test.js"] },
+    { "name": "S10 gain in decibels (spec-parser, internal)", "base": "main", "head": "story/S10", "mustSelect": ["plugins/spec-parser/test/spec.test.js"] },
+    { "name": "S11 CLI command (shared shell outside every capsule)", "base": "main", "head": "story/S11", "mustEscalate": true, "mustSelect": ["test/cli.test.js"] },
+    { "name": "S12 pipeline summary (design-pipeline, internal)", "base": "main", "head": "story/S12", "mustSelect": ["plugins/design-pipeline/test/pipeline.test.js"] }
+  ]
+}

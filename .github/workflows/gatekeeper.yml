@@ -25,6 +25,9 @@ jobs:
 
       - run: npm test
 
+      # Replay de las historias del benchmark: un cambio que cruza una frontera tiene que escalar
+      - run: npm run test:replay
+
       - name: Run Contract Gatekeeper (Millisecond Check)
         id: gate
         env:

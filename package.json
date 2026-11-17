@@ -29,6 +29,7 @@
     "typecheck": "tsc --noEmit",
     "check": "tsx src/cli.ts check",
     "test": "tsx test/gatekeeper.test.ts",
+    "test:replay": "tsx test/replay.test.ts",
     "prepare": "npm run build",
     "prepublishOnly": "npm test",
     "test:benchmark": "tsx benchmark/test/plumbing.test.ts",

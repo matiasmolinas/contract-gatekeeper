@@ -134,6 +134,7 @@ contract-gatekeeper init
 contract-gatekeeper check [--base <ref>] [--head <ref>] [--working-tree] [--files a,b] [--agent <id>] [--json]
 contract-gatekeeper shadow --verdict <verdict.json> --suite-exit <code> [--failed-tests a,b | --failed-tests-file <file>] --out <shadow.jsonl>
 contract-gatekeeper shadow-summary <shadow.jsonl> [--json]
+contract-gatekeeper replay <cases.json> [--json]
 contract-gatekeeper lock <capsule> <agentId>
 contract-gatekeeper unlock <capsule> <agentId>
 contract-gatekeeper check-contention <capsule> [agentId]
@@ -205,10 +206,31 @@ A **miss** is a red full suite where the verdict was `FAST_TRACK` (`verdictMiss`
 
 In CI it is opt-in: set the repository variable `GATEKEEPER_SHADOW` to `1`. The `shadow` job then runs the full suite on every `FAST_TRACK` (the command is `npm test`, or the repository variable `GATEKEEPER_SHADOW_SUITE`) and uploads `gatekeeper-shadow.jsonl` as an artifact. The job is `continue-on-error` and nothing depends on it, so it never changes the required verdict or blocks a PR. Download the artifacts and concatenate them to summarize many PRs.
 
+## Replay against past changes
+
+`replay` checks the gatekeeper against changes whose outcome you already know, typically past regressions:
+
+```json
+{
+  "cases": [
+    { "name": "Shared schema change", "base": "a1b2c3d", "head": "e4f5a6b", "mustEscalate": true },
+    { "name": "Fix inside billing", "base": "main~12", "head": "main~11", "mustSelect": ["src/modules/billing/test/invoice.test.ts"] }
+  ]
+}
+```
+
+```bash
+contract-gatekeeper replay cases.json [--json]
+```
+
+For each case it computes the verdict and the test selection between `base` and `head`, and fails if a case that must escalate gets `FAST_TRACK` or a required test is not selected. A ref that does not resolve, or a case that cannot be evaluated, also fails. Nothing is checked out: the tree at `head` is written to a temporary `.gatekeeper-replay-*` folder with `git archive` and evaluated there (add that pattern to `.gitignore`), while the diff and the base manifests are read from the repository with git. The `gatekeeper.config.json` of `head` is used when it exists. Like `check`, it runs the `selfTest()` of the capsules at `head`. It exits with `1` if any case fails.
+
+`npm run test:replay` (run in CI) builds a throwaway repository from the benchmark's plugin tree, puts each benchmark story's reference solution on its own branch, and replays `test/replay/story-cases.json`: the four stories that cross a capsule boundary or change a contract must escalate, and every story must select its capsule's tests.
+
 ## Limits to know about
 
 - `check` imports each affected capsule and runs its `selfTest()`. Run it only on code you would be willing to execute, as with any test runner.
-- The contract diff loads the working tree as `HEAD`. Check out the branch you are verifying.
+- The contract diff loads the working tree as `HEAD`. Check out the branch you are verifying (`replay` is the exception: it materializes `head` itself).
 - TypeScript entry files are loaded as-is: run through `tsx`, or use Node 22.18+ with erasable-only TypeScript syntax.
 - Locks live in a local `.gatekeeper-locks.json`. Agents in separate clones or worktrees do not share them, and `check` only enforces locks when `--agent` is passed.
 - A shared-file change re-verifies every capsule. Narrowing that to the capsules that actually import the file is not implemented yet.
