@@ -101,6 +101,32 @@ Type-only imports (`import type { A } from …`) are ignored by the import scan,
 
 For phase 5, the capsule as it was at the base ref is written to a temporary sibling folder (`<pluginsDir>/.gatekeeper-base-*`), imported, and removed. Add `.gatekeeper-base-*` to `.gitignore`.
 
+## Test selection
+
+Every verdict carries `selectedTests`: the test files worth running for the change, each with the reason it was picked.
+
+| Reason | When |
+| --- | --- |
+| `changed-test` | The test file itself changed. |
+| `owner` | A test with the same base name as a changed file (`lib/e96.js` → `e96.test.js`) in the same folder, in a `test`/`tests`/`__tests__` folder beside it, or at the capsule root; or a test that `extraInputs` names as the owner of a non-code file. |
+| `import-consumer` | A test in the capsule that imports the changed file, directly or through other files of the capsule. A package subpath import such as `#runtime` counts as an import of the capsule's entry file, since a registry can load it without a visible import. |
+| `fallback-all` | Every test of the capsule, because something could not be determined. |
+
+The fallback rule is simple: **what is unknown widens the selection, it never narrows it.** All of the capsule's tests are selected when a changed file is not code (JSON, fixtures, styles) and no `extraInputs` rule names its tests, when any file in the capsule has a dynamic `import()` or `require()` whose target is not a literal, when a file cannot be read, or when a changed source file is not reached by any test. A change outside every capsule selects every test in the repository. `selectionNotes` says why a fallback happened.
+
+Two optional config fields tune it; configs without them behave as before:
+
+```json
+{
+  "testFilePatterns": ["**/*.test.ts", "**/*.spec.ts"],
+  "extraInputs": {
+    "support-studio": { "fixtures/**": ["test/support.test.ts"] }
+  }
+}
+```
+
+`testFilePatterns` are globs relative to the repository root (the default is shown). `extraInputs` maps, per capsule, a glob of non-code files to the tests that read them, both relative to the capsule folder.
+
 ## CLI
 
 ```text
@@ -132,13 +158,15 @@ contract-gatekeeper check-contention <capsule> [agentId]
     { "name": "full-workspace-composer", "capabilities": ["electronics.amplifier.solve", "support.ticket.triage"] }
   ],
   "importViolations": [],
+  "selectedTests": [],
+  "selectionNotes": [],
   "warnings": []
 }
 ```
 
 ## CI
 
-`.github/workflows/gatekeeper.yml` runs the check on every pull request and exposes `verdict` and `key_flows` as job outputs. A second job runs only when the verdict is `ESCALATE_TO_E2E`; that is where a real-browser runner or Playwright suite plugs in, scoped to the affected flows. It also receives `key_flow_details`: each affected flow with its `entryUrl` and `done` when the config declares them.
+`.github/workflows/gatekeeper.yml` runs the check on every pull request and exposes `verdict` and `key_flows` as job outputs. A second job runs only when the verdict is `ESCALATE_TO_E2E`; that is where a real-browser runner or Playwright suite plugs in, scoped to the affected flows. It also receives `key_flow_details`: each affected flow with its `entryUrl` and `done` when the config declares them. The gate job also exposes `selected_tests`, the JSON list of selected tests, for a runner that wants to run only those.
 
 ## Limits to know about
 

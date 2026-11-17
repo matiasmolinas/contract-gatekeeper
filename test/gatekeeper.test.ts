@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { runGatekeeper } from '../src/engine.js';
 import { acquireLock, releaseLock } from '../src/lock-manager.js';
-import type { GatekeeperConfig, PluginManifest } from '../src/types.js';
+import { selectTests } from '../src/test-selector.js';
+import type { GatekeeperConfig, PluginManifest, SelectedTest } from '../src/types.js';
 
 const config: GatekeeperConfig = JSON.parse(fs.readFileSync('./gatekeeper.config.json', 'utf-8'));
 
@@ -325,6 +326,78 @@ export const plugin = {
     );
   }
   console.log('✅ Escenario 10 (Flujos con entryUrl y done; forma corta intacta; config inválida -> error claro): OK');
+
+  // ESCENARIO 11: Selección de tests dentro de una cápsula
+  const cfg11 = {
+    ...writeFixture('selection', {
+      'calc/index.ts': pluginSource('plugin-calc', 'cap.calc', `import { add } from './lib/math.js';\nvoid add;`),
+      'calc/lib/math.ts': `import { fmt } from './format.js';\nexport const add = (a: number, b: number) => fmt(a + b);\n`,
+      'calc/lib/format.ts': 'export const fmt = (n: number) => String(n);\n',
+      'calc/lib/orphan.ts': 'export const unused = 1;\n',
+      'calc/data/table.json': '{"rows": []}\n',
+      'calc/test/math.test.ts': `import { add } from '../lib/math.js';\nvoid add;\n`,
+      'calc/test/entry.test.ts': `import { load } from '#runtime';\nvoid load;\n`,
+      'calc/test/other.test.ts': `import fs from 'node:fs';\nvoid fs;\n`,
+      'dyn/index.ts': pluginSource('plugin-dyn', 'cap.dyn', 'export const pick = (name: string) => import(name);'),
+      'dyn/lib/a.ts': 'export const a = 1;\n',
+      'dyn/test/a.test.ts': `import { a } from '../lib/a.js';\nvoid a;\n`,
+      'dyn/test/b.test.ts': 'export {};\n'
+    }),
+    allowedExternalPackages: ['#runtime']
+  };
+  const sel = (files: string[], extra: Partial<GatekeeperConfig> = {}) =>
+    selectTests({ ...cfg11, ...extra }, files.map(f => `${cfg11.pluginsDir}/${f}`), cfg11.pluginsDir);
+  const short = (r: { selectedTests: SelectedTest[] }) =>
+    Object.fromEntries(r.selectedTests.map(t => [t.file.slice(cfg11.pluginsDir.length + 1), t.reason]));
+
+  // Dueño por nombre + consumidor vía el archivo de entrada (import '#runtime')
+  assert.deepStrictEqual(short(sel(['calc/lib/math.ts'])), {
+    'calc/test/entry.test.ts': 'import-consumer',
+    'calc/test/math.test.ts': 'owner'
+  });
+  // Transitivo: format <- math <- test/math.test.ts
+  assert.deepStrictEqual(short(sel(['calc/lib/format.ts'])), {
+    'calc/test/entry.test.ts': 'import-consumer',
+    'calc/test/math.test.ts': 'import-consumer'
+  });
+  assert.deepStrictEqual(short(sel(['calc/test/other.test.ts'])), { 'calc/test/other.test.ts': 'changed-test' });
+
+  // Lo que no se puede determinar amplía a todos los tests de la cápsula
+  const allCalc = { 'calc/test/entry.test.ts': 'fallback-all', 'calc/test/math.test.ts': 'fallback-all', 'calc/test/other.test.ts': 'fallback-all' };
+  const json = sel(['calc/data/table.json']);
+  assert.deepStrictEqual(short(json), allCalc);
+  assert.match(json.notes[0], /not code and no extraInputs rule/);
+  assert.deepStrictEqual(short(sel(['calc/lib/orphan.ts'])), allCalc);
+  assert.deepStrictEqual(short(sel(['calc/data/table.json', 'calc/test/other.test.ts'])), {
+    ...allCalc,
+    'calc/test/other.test.ts': 'changed-test'
+  });
+  // Con un dueño explícito, el fixture deja de ser desconocido
+  assert.deepStrictEqual(short(sel(['calc/data/table.json'], { extraInputs: { calc: { 'data/*.json': ['test/math.test.ts'] } } })), {
+    'calc/test/math.test.ts': 'owner'
+  });
+  // Un import(variable) en la cápsula: el grafo no es confiable
+  const dyn = sel(['dyn/lib/a.ts']);
+  assert.deepStrictEqual(short(dyn), { 'dyn/test/a.test.ts': 'fallback-all', 'dyn/test/b.test.ts': 'fallback-all' });
+  assert.match(dyn.notes[0], /dynamic import/);
+  // testFilePatterns propios
+  assert.deepStrictEqual(short(sel(['calc/lib/format.ts'], { testFilePatterns: ['**/math.test.ts'] })), {
+    'calc/test/math.test.ts': 'import-consumer'
+  });
+
+  // El veredicto lleva la selección; un archivo compartido selecciona todo
+  const res11 = await runGatekeeper(cfg11, { explicitFiles: [`${cfg11.pluginsDir}/calc/lib/math.ts`], baselineManifests: {} });
+  assert.strictEqual(res11.verdict, 'FAST_TRACK', JSON.stringify(res11, null, 2));
+  assert.deepStrictEqual(res11.selectedTests.map(t => t.reason), ['import-consumer', 'owner']);
+  const res11b = await runGatekeeper(cfg11, { explicitFiles: ['src/shared/global.css', `${cfg11.pluginsDir}/calc/lib/math.ts`] });
+  assert.strictEqual(res11b.verdict, 'ESCALATE_TO_E2E');
+  assert.ok(res11b.selectedTests.some(t => t.file === 'test/gatekeeper.test.ts' && t.reason === 'fallback-all'));
+  assert.ok(res11b.selectionNotes.some(n => n.includes('outside every capsule')));
+  // Configs viejas siguen igual; una config de selección mal formada falla claro
+  assert.deepStrictEqual(res1.selectedTests, []);
+  await assert.rejects(runGatekeeper({ ...config, testFilePatterns: 'x' as unknown as string[] }, { explicitFiles: [] }), /testFilePatterns/);
+  await assert.rejects(runGatekeeper({ ...config, extraInputs: { calc: { 'a.json': 'x' } } as never }, { explicitFiles: [] }), /extraInputs/);
+  console.log('✅ Escenario 11 (Selección: dueño, consumidor transitivo, test cambiado; lo desconocido amplía a fallback-all): OK');
 
   console.log('\n🎉 Todos los escenarios deterministas pasaron exitosamente.');
 }

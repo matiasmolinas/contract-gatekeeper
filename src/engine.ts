@@ -16,6 +16,7 @@ import type {
 import { getChangedFilesFromGit, getWorkingTreeChanges, listFilesAtRef, readBlobAtRef, refExists } from './git-inspector.js';
 import { scanCapsuleImports } from './import-scanner.js';
 import { keyFlowErrors, resolveAffectedGraph } from './graph-resolver.js';
+import { selectionConfigErrors, selectTests } from './test-selector.js';
 import { readLocks } from './lock-manager.js';
 
 export type * from './types.js';
@@ -55,7 +56,7 @@ export async function runGatekeeper(
   options: RunOptions = {}
 ): Promise<GatekeeperVerdict> {
   const t0 = performance.now();
-  const configErrors = keyFlowErrors(config);
+  const configErrors = [...keyFlowErrors(config), ...selectionConfigErrors(config)];
   if (configErrors.length > 0) throw new Error(`gatekeeper.config.json: ${configErrors.join('; ')}`);
   const baseRef = options.baseRef ?? 'main';
   const headRef = options.headRef ?? 'HEAD';
@@ -129,6 +130,8 @@ export async function runGatekeeper(
       humanReviewLoad = 'NONE';
     }
 
+    const selection = selectTests(config, touchedFiles, pluginsDir);
+
     const { allAffectedCapabilities, affectedKeyFlows, affectedKeyFlowDetails } = resolveAffectedGraph(
       Array.from(directlyAffected),
       allManifests,
@@ -151,6 +154,8 @@ export async function runGatekeeper(
       affectedKeyFlowDetails: verdict === 'FAST_TRACK' ? [] : affectedKeyFlowDetails,
       selfTestReports,
       importViolations,
+      selectedTests: selection.selectedTests,
+      selectionNotes: selection.notes,
       warnings,
       totalVerificationTimeMs: Number((performance.now() - t0).toFixed(2))
     };

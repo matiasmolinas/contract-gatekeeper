@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { cleanupTempArtifacts, runGatekeeper } from './engine.js';
 import { keyFlowErrors } from './graph-resolver.js';
+import { selectionConfigErrors } from './test-selector.js';
 import { acquireLock, checkContention, releaseLock } from './lock-manager.js';
 import type { GatekeeperConfig, GatekeeperVerdict } from './types.js';
 
@@ -32,7 +33,7 @@ function loadConfig(): GatekeeperConfig {
     console.error('❌ Error: gatekeeper.config.json requiere "pluginsDir" y "entryFileName".');
     process.exit(2);
   }
-  const flowErrors = keyFlowErrors(config);
+  const flowErrors = [...keyFlowErrors(config), ...selectionConfigErrors(config)];
   if (flowErrors.length > 0) {
     for (const message of flowErrors) console.error(`❌ Error: gatekeeper.config.json: ${message}`);
     process.exit(2);
@@ -175,6 +176,9 @@ function printHumanReadable(v: GatekeeperVerdict) {
       console.log(`  ${flow.name}: starts at ${flow.entryUrl ?? '(not declared)'} · done when: ${flow.done ?? '(not declared)'}`);
     }
   }
+  console.log(`Selected Tests:       ${v.selectedTests.length ? '' : 'None'}`);
+  for (const test of v.selectedTests) console.log(`  ${test.file} (${test.reason})`);
+  for (const note of v.selectionNotes) console.log(`  ↳ ${note}`);
   console.log('----------------------------------------------------------------------');
   for (const [pluginId, report] of Object.entries(v.selfTestReports)) {
     console.log(

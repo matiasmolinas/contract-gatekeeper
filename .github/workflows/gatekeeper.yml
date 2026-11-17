@@ -11,6 +11,7 @@ jobs:
       verdict: ${{ steps.gate.outputs.verdict }}
       key_flows: ${{ steps.gate.outputs.key_flows }}
       key_flow_details: ${{ steps.gate.outputs.key_flow_details }}
+      selected_tests: ${{ steps.gate.outputs.selected_tests }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,6 +39,7 @@ jobs:
           echo "verdict=$(echo "$REPORT" | jq -r '.verdict')" >> "$GITHUB_OUTPUT"
           echo "key_flows=$(echo "$REPORT" | jq -c '.affectedKeyFlows')" >> "$GITHUB_OUTPUT"
           echo "key_flow_details=$(echo "$REPORT" | jq -c '.affectedKeyFlowDetails')" >> "$GITHUB_OUTPUT"
+          echo "selected_tests=$(echo "$REPORT" | jq -c '.selectedTests')" >> "$GITHUB_OUTPUT"
           exit $STATUS
 
   browser-e2e-check:
