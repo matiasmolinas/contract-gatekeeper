@@ -1,6 +1,6 @@
 // benchmark/lib/metrics.ts
 // Métricas de un brazo en una corrida. Todas se derivan del resultado crudo.
-import type { ArmResult } from './harness.js';
+import type { ArmResult, StoryResult } from './harness.js';
 
 export const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b);
@@ -8,12 +8,38 @@ export const median = (values: number[]) => {
   return sorted.length === 0 ? 0 : sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 };
 
+/** Percentil por rango más cercano (p entre 0 y 100); 0 si no hay valores. */
+export const percentile = (values: number[], p: number) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted.length === 0 ? 0 : sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)];
+};
+
+/**
+ * Tiempo de ciclo de una historia: de que un agente la toma a que queda mergeada,
+ * con la espera del lock incluida. Las corridas desde 1.2.0 lo registran
+ * (`cycleMs`); en las anteriores se aproxima con `wallMs` de las historias
+ * mergeadas, que además incluye el test de aceptación al mergear y la limpieza
+ * del worktree. Una historia que no se mergeó no tiene tiempo de ciclo.
+ */
+export function storyCycle(story: StoryResult): { cycleMs: number | null; approximate: boolean } {
+  if (typeof story.cycleMs === 'number') return { cycleMs: story.cycleMs, approximate: false };
+  if (story.cycleMs === undefined && story.merged) return { cycleMs: story.wallMs, approximate: true };
+  return { cycleMs: null, approximate: false };
+}
+
+/** Tiempo de ciclo y costo de cada historia de un brazo. */
+export function storyCycles(result: ArmResult) {
+  return result.stories.map(s => ({ storyId: s.storyId, merged: s.merged, ...storyCycle(s), costUsd: s.usage.costUsd }));
+}
+
 /** Métricas de un brazo en una corrida, todas derivadas del resultado crudo. */
 export function metrics(result: ArmResult) {
   const attempts = result.stories.flatMap(s => s.attempts);
   const outcome = (o: string) => attempts.filter(a => a.outcome === o).length;
   const fullSuite = (detail: Record<string, unknown> | undefined) =>
     detail && (detail.check === 'full-suite' || typeof detail.escalatedSuiteMs === 'number') ? 1 : 0;
+  const cycles = storyCycles(result);
+  const cycleValues = cycles.flatMap(c => (c.cycleMs === null ? [] : [c.cycleMs]));
   const verdicts: Record<string, number> = {};
   for (const a of attempts) {
     const verdict = a.gate?.detail.verdict;
@@ -46,6 +72,11 @@ export function metrics(result: ArmResult) {
     lockWaitMs: result.stories.reduce((n, s) => n + s.lockWaitMs, 0),
     mergeQueueWaitMs: attempts.reduce((n, a) => n + a.mergeQueueWaitMs, 0),
     wallMs: result.wallMs,
+    cycleMedianMs: median(cycleValues),
+    cycleP90Ms: percentile(cycleValues, 90),
+    cycleApproximate: cycles.some(c => c.approximate),
+    storyCostMedianUsd: Number(median(cycles.map(c => c.costUsd)).toFixed(6)),
+    storyCostP90Usd: Number(percentile(cycles.map(c => c.costUsd), 90).toFixed(6)),
     gatekeeperVerdicts: verdicts
   };
 }

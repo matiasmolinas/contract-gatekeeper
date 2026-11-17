@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ArmResult } from './lib/harness.js';
-import { median, metrics, type ArmMetrics } from './lib/metrics.js';
+import { median, metrics, percentile, storyCycles, type ArmMetrics } from './lib/metrics.js';
 
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string) => {
@@ -26,6 +26,7 @@ interface Run {
   source: string;
   metrics: ArmMetrics;
   storyTokens: Record<string, number>;
+  cycles: ReturnType<typeof storyCycles>;
 }
 const byArm = new Map<string, Run[]>();
 for (const folder of folders) {
@@ -36,7 +37,8 @@ for (const folder of folders) {
     byArm.get(result.arm)!.push({
       source: `${path.basename(path.resolve(folder))}/${file}`,
       metrics: metrics(result),
-      storyTokens: Object.fromEntries(result.stories.map(s => [s.storyId, s.usage.totalTokens]))
+      storyTokens: Object.fromEntries(result.stories.map(s => [s.storyId, s.usage.totalTokens])),
+      cycles: storyCycles(result)
     });
   }
 }
@@ -132,6 +134,43 @@ for (const arm of arms.filter(a => a !== BASELINE)) {
   const cheaper = storyIds.filter(id => storyMedian(arm, id) < storyMedian(BASELINE, id)).length;
   lines.push(`- \`${arm}\` has a lower median than \`${BASELINE}\` in ${cheaper} of ${storyIds.length} stories.`);
 }
+lines.push(
+  '',
+  '## Cycle time and cost per story',
+  '',
+  'Cycle time is the wall time from the moment an agent picks a story up to the moment it is merged into main, including any wait for a capsule lock and every attempt. Cost is what the provider reported for all attempts of the story. Story observations are pooled across runs; a story that never merged has a cost but no cycle time.',
+  ''
+);
+const approximate = arms.filter(arm => byArm.get(arm)!.some(run => run.cycles.some(c => c.approximate)));
+if (approximate.length > 0) {
+  lines.push(
+    `Runs recorded before the harness kept merge timestamps (${approximate.map(a => `\`${a}\``).join(', ')}) use the story's wall time instead, which also includes the hidden acceptance test run at merge and the worktree cleanup, so their cycle times are slightly high.`,
+    ''
+  );
+}
+lines.push(
+  '| Arm | Stories observed | Merged | Cycle time median (s) | Cycle time p90 (s) | Cost per story median (US$) | Cost per story p90 (US$) |',
+  '| --- | --- | --- | --- | --- | --- | --- |'
+);
+const seconds = (ms: number) => (ms / 1000).toFixed(1);
+for (const arm of arms) {
+  const all = byArm.get(arm)!.flatMap(run => run.cycles);
+  const cycle = all.flatMap(c => (c.cycleMs === null ? [] : [c.cycleMs]));
+  const cost = all.map(c => c.costUsd);
+  lines.push(
+    `| ${arm} | ${all.length} | ${cycle.length} | ${seconds(median(cycle))} | ${seconds(percentile(cycle, 90))} | ${median(cost).toFixed(4)} | ${percentile(cost, 90).toFixed(4)} |`
+  );
+}
+lines.push('', 'Median cycle time per story across runs, in seconds:', '');
+lines.push(`| Story | ${arms.join(' | ')} |`, `| --- | ${arms.map(() => '---').join(' | ')} |`);
+for (const id of storyIds) {
+  const cell = (arm: string) => {
+    const values = byArm.get(arm)!.flatMap(run => run.cycles.filter(c => c.storyId === id && c.cycleMs !== null).map(c => c.cycleMs!));
+    return values.length ? seconds(median(values)) : '–';
+  };
+  lines.push(`| ${id} | ${arms.map(cell).join(' | ')} |`);
+}
+
 lines.push('', 'Runs included:', '', ...arms.flatMap(arm => byArm.get(arm)!.map(run => `- ${arm}: \`${run.source}\``)), '');
 
 const output = lines.join('\n');

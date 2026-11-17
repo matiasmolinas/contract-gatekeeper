@@ -240,6 +240,8 @@ For each case it computes the verdict and the test selection between `base` and 
 
 `benchmark/` holds an A/B experiment that runs the same user stories with real coding agents on a layered codebase and on its capsule version. See [benchmark/README.md](benchmark/README.md) for the method and `benchmark/results/` for the data.
 
+Besides tokens and cost, the analysis reports each story's **cycle time**: wall time from the moment an agent picks the story up to the moment it is merged, lock waits and retries included, with the median and p90 per arm next to the median and p90 cost per story. CI cost only matters if it does not slow agents down, so the two are read together. `npx tsx benchmark/analyze.ts <results folder>…` computes them from existing result files; no model is called.
+
 ## Acknowledgements
 
 Special thanks to Ismael Faro. This tool grew out of a prototype built directly on his architectural recommendations and proposals: treating the development lifecycle itself as a program, and isolating capabilities behind strict, self-verifying contracts.

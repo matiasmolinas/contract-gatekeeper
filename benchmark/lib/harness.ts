@@ -76,6 +76,12 @@ export interface StoryResult {
   acceptanceFinal: boolean | null;
   usage: UsageTotals;
   wallMs: number;
+  /** Desde el inicio del brazo hasta que un agente toma la historia (ms). Corridas desde 1.2.0. */
+  startedAtMs?: number;
+  /** Desde el inicio del brazo hasta que la historia quedó mergeada en main (ms); null si no se mergeó. */
+  mergeReadyAtMs?: number | null;
+  /** Tiempo de ciclo: de que un agente toma la historia a que queda mergeada (incluye espera de lock). */
+  cycleMs?: number | null;
 }
 
 export interface ArmResult {
@@ -185,7 +191,10 @@ export async function runArm(
       acceptanceAtMerge: null,
       acceptanceFinal: null,
       usage: emptyUsage(),
-      wallMs: 0
+      wallMs: 0,
+      startedAtMs: Math.round(startedAt - t0),
+      mergeReadyAtMs: null,
+      cycleMs: null
     };
     const agentId = `agent-${story.id}`;
 
@@ -273,6 +282,10 @@ export async function runArm(
 
             record.outcome = 'merged';
             result.merged = true;
+            // Listo para mergear = mergeado en main; el test oculto que sigue es trabajo del arnés
+            const mergedAt = performance.now();
+            result.mergeReadyAtMs = Math.round(mergedAt - t0);
+            result.cycleMs = Math.round(mergedAt - startedAt);
             result.acceptanceAtMerge = await runAcceptance(story);
           });
         } finally {

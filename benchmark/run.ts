@@ -157,7 +157,11 @@ function renderMarkdown(summary: {
     ['Full test-suite runs during integration', m => m.fullSuiteRuns],
     ['Verification time, summed (ms)', m => m.verificationMs],
     ['Time waiting for a capsule lock, summed (ms)', m => m.lockWaitMs],
-    ['Wall-clock time of the arm (ms)', m => m.wallMs]
+    ['Wall-clock time of the arm (ms)', m => m.wallMs],
+    ['Story cycle time, pick-up to merged, median (ms)', m => m.cycleMedianMs],
+    ['Story cycle time, pick-up to merged, p90 (ms)', m => m.cycleP90Ms],
+    ['Cost per story, median (US$)', m => m.storyCostMedianUsd],
+    ['Cost per story, p90 (US$)', m => m.storyCostP90Usd]
   ];
   const cell = (arm: ArmName, pick: (m: ReturnType<typeof metrics>) => number) => {
     const values = summary.perRun.filter(r => r.arm === arm).map(r => pick(r.metrics));
