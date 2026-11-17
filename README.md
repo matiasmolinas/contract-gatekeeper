@@ -164,6 +164,7 @@ contract-gatekeeper check-contention <capsule> [agentId]
   "importViolations": [],
   "selectedTests": [],
   "selectionNotes": [],
+  "testBudget": null,
   "warnings": []
 }
 ```
@@ -244,6 +245,7 @@ For each case it computes the verdict and the test selection between `base` and 
 - The contract diff loads the working tree as `HEAD`. Check out the branch you are verifying (`replay` is the exception: it materializes `head` itself).
 - TypeScript entry files are loaded as-is: run through `tsx`, or use Node 22.18+ with erasable-only TypeScript syntax.
 - Locks live in a local `.gatekeeper-locks.json`. Agents in separate clones or worktrees do not share them, and `check` only enforces locks when `--agent` is passed.
+- Test selection follows imports inside the touched capsule. Tests of other capsules that reach it through the registry are not selected for a `FAST_TRACK`: that is the bet the contract makes, and shadow mode is how to check it.
 - A shared-file change re-verifies every capsule. Narrowing that to the capsules that actually import the file is not implemented yet.
 - The import scan is pattern-based, not a full parser. It reads string and template-literal specifiers (for `` import(`../x/${name}.js`) `` it judges the static directory prefix), but it cannot see `import(someVariable)`.
 
