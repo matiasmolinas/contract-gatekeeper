@@ -16,6 +16,8 @@ import type {
 import { getChangedFilesFromGit, getWorkingTreeChanges, listFilesAtRef, readBlobAtRef, refExists } from './git-inspector.js';
 import { scanCapsuleImports } from './import-scanner.js';
 import { keyFlowErrors, resolveAffectedGraph } from './graph-resolver.js';
+import { selectionConfigErrors, selectTests } from './test-selector.js';
+import { evaluateTestBudget, testBudgetErrors } from './test-budget.js';
 import { readLocks } from './lock-manager.js';
 
 export type * from './types.js';
@@ -32,6 +34,12 @@ export interface RunOptions {
    * git (`baseRef:<pluginsDir>/<capsule>/<entryFileName>`).
    */
   baselineManifests?: Record<string, PluginManifest>;
+  /**
+   * Repositorio donde correr git, si no es el directorio actual. Lo usa `replay`:
+   * evalúa un árbol materializado de `headRef` y lee git del repositorio real.
+   * Con esta opción un diff que falla es un error, no una caída al working tree.
+   */
+  gitCwd?: string;
 }
 
 const REJECTING: ClassificationReason[] = [
@@ -55,7 +63,7 @@ export async function runGatekeeper(
   options: RunOptions = {}
 ): Promise<GatekeeperVerdict> {
   const t0 = performance.now();
-  const configErrors = keyFlowErrors(config);
+  const configErrors = [...keyFlowErrors(config), ...selectionConfigErrors(config), ...testBudgetErrors(config)];
   if (configErrors.length > 0) throw new Error(`gatekeeper.config.json: ${configErrors.join('; ')}`);
   const baseRef = options.baseRef ?? 'main';
   const headRef = options.headRef ?? 'HEAD';
@@ -73,7 +81,7 @@ export async function runGatekeeper(
     new Set(
       (
         options.explicitFiles ?? [
-          ...getChangedFilesFromGit(baseRef, headRef),
+          ...getChangedFilesFromGit(baseRef, headRef, options.gitCwd),
           ...(options.includeWorkingTree ? getWorkingTreeChanges() : [])
         ]
       )
@@ -110,6 +118,23 @@ export async function runGatekeeper(
     }
   }
 
+  // Presupuesto de tests (opcional): informa y sube la carga de revisión, nunca el veredicto
+  const testBudget = evaluateTestBudget(config, {
+    baseRef,
+    headRef,
+    touchedFiles,
+    workingTree: options.explicitFiles !== undefined || Boolean(options.includeWorkingTree),
+    gitCwd: options.gitCwd
+  });
+  if (testBudget?.netTestLines === null) {
+    warnings.push('Test budget could not be measured (git diff failed); review load raised as if it were exceeded.');
+  } else if (testBudget?.exceeded) {
+    reasons.add('TEST_BUDGET_EXCEEDED');
+    warnings.push(
+      `Change adds ${testBudget.netTestLines} net test lines, over the budget of ${testBudget.maxNetTestLinesPerChange}, with no 'gatekeeper-test-budget: <reason>' line in its commit messages.`
+    );
+  }
+
   const finish = (): GatekeeperVerdict => {
     // "Estrictamente interno" deja de ser cierto si mutó el contrato o un import cruzó la frontera
     if (contractMutated || reasons.has('ILLEGAL_CROSS_CAPSULE_IMPORT')) {
@@ -128,6 +153,11 @@ export async function runGatekeeper(
     } else if (reasons.has('NO_FILES_CHANGED')) {
       humanReviewLoad = 'NONE';
     }
+    if ((reasons.has('TEST_BUDGET_EXCEEDED') || testBudget?.netTestLines === null) && ['NONE', 'LOW'].includes(humanReviewLoad)) {
+      humanReviewLoad = 'MEDIUM';
+    }
+
+    const selection = selectTests(config, touchedFiles, pluginsDir);
 
     const { allAffectedCapabilities, affectedKeyFlows, affectedKeyFlowDetails } = resolveAffectedGraph(
       Array.from(directlyAffected),
@@ -151,6 +181,9 @@ export async function runGatekeeper(
       affectedKeyFlowDetails: verdict === 'FAST_TRACK' ? [] : affectedKeyFlowDetails,
       selfTestReports,
       importViolations,
+      selectedTests: selection.selectedTests,
+      selectionNotes: selection.notes,
+      testBudget,
       warnings,
       totalVerificationTimeMs: Number((performance.now() - t0).toFixed(2))
     };
@@ -193,7 +226,7 @@ export async function runGatekeeper(
 
   // FASE 5: Detección de Mutación de Contrato (Manifest Diff)
   const baselineFromGit = options.baselineManifests === undefined;
-  const gitBaselineAvailable = baselineFromGit && touchedCapsules.length > 0 && refExists(baseRef);
+  const gitBaselineAvailable = baselineFromGit && touchedCapsules.length > 0 && refExists(baseRef, options.gitCwd);
   if (baselineFromGit && touchedCapsules.length > 0 && !gitBaselineAvailable) {
     warnings.push(
       `Base ref '${baseRef}' could not be resolved: manifest diff (phase 5) was skipped.`
@@ -210,7 +243,7 @@ export async function runGatekeeper(
       base = options.baselineManifests![capsule];
       baseKnown = base !== undefined;
     } else if (gitBaselineAvailable) {
-      const loaded = await loadManifestAtRef(config, capsule, baseRef);
+      const loaded = await loadManifestAtRef(config, capsule, baseRef, options.gitCwd);
       if (loaded.error) {
         // Sin baseline no se puede probar que el contrato sigue igual: se escala, no se deja pasar
         contractMutated = true;
@@ -374,6 +407,15 @@ let baselineCounter = 0;
  * al terminar; esto es para quien deba salir a mitad de una ejecución (el CLI
  * lo llama al recibir SIGINT/SIGTERM).
  */
+export function trackTempArtifact(dir: string): void {
+  tempArtifacts.add(dir);
+}
+
+export function untrackTempArtifact(dir: string): void {
+  fs.rmSync(dir, { recursive: true, force: true });
+  tempArtifacts.delete(dir);
+}
+
 export function cleanupTempArtifacts(): void {
   for (const dir of tempArtifacts) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -391,10 +433,11 @@ export function cleanupTempArtifacts(): void {
 async function loadManifestAtRef(
   config: GatekeeperConfig,
   capsule: string,
-  ref: string
+  ref: string,
+  gitCwd?: string
 ): Promise<{ manifest?: PluginManifest; error?: string }> {
   const capsuleRel = `${normalizePath(config.pluginsDir).replace(/\/+$/, '')}/${capsule}`;
-  const files = listFilesAtRef(ref, capsuleRel);
+  const files = listFilesAtRef(ref, capsuleRel, gitCwd);
   if (!files.includes(`${capsuleRel}/${config.entryFileName}`)) return {};
 
   const tmpDir = path.resolve(
@@ -405,7 +448,7 @@ async function loadManifestAtRef(
   tempArtifacts.add(tmpDir);
   try {
     for (const file of files) {
-      const blob = readBlobAtRef(ref, file);
+      const blob = readBlobAtRef(ref, file, gitCwd);
       if (!blob) continue;
       const target = path.join(tmpDir, file.slice(capsuleRel.length + 1));
       fs.mkdirSync(path.dirname(target), { recursive: true });

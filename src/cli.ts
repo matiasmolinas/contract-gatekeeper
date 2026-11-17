@@ -4,12 +4,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { cleanupTempArtifacts, runGatekeeper } from './engine.js';
 import { keyFlowErrors } from './graph-resolver.js';
+import { selectionConfigErrors } from './test-selector.js';
+import { testBudgetErrors } from './test-budget.js';
+import { shadowRecord, summarizeShadow } from './shadow.js';
+import { parseReplayCases, runReplay } from './replay.js';
 import { acquireLock, checkContention, releaseLock } from './lock-manager.js';
 import type { GatekeeperConfig, GatekeeperVerdict } from './types.js';
 
 const USAGE = `Uso:
   contract-gatekeeper init
   contract-gatekeeper check [--base <ref>] [--head <ref>] [--working-tree] [--files a,b] [--agent <id>] [--json]
+  contract-gatekeeper shadow --verdict <verdict.json> --suite-exit <code> [--failed-tests a,b | --failed-tests-file <file>] --out <shadow.jsonl>
+  contract-gatekeeper shadow-summary <shadow.jsonl> [--json]
+  contract-gatekeeper replay <cases.json> [--json]
   contract-gatekeeper lock <capsule> <agentId>
   contract-gatekeeper unlock <capsule> <agentId>
   contract-gatekeeper check-contention <capsule> [agentId]`;
@@ -32,7 +39,7 @@ function loadConfig(): GatekeeperConfig {
     console.error('❌ Error: gatekeeper.config.json requiere "pluginsDir" y "entryFileName".');
     process.exit(2);
   }
-  const flowErrors = keyFlowErrors(config);
+  const flowErrors = [...keyFlowErrors(config), ...selectionConfigErrors(config), ...testBudgetErrors(config)];
   if (flowErrors.length > 0) {
     for (const message of flowErrors) console.error(`❌ Error: gatekeeper.config.json: ${message}`);
     process.exit(2);
@@ -117,6 +124,94 @@ async function main() {
     process.exit(0);
   }
 
+  if (command === 'shadow') {
+    const verdictFile = getFlagValue(args, '--verdict');
+    const exitArg = getFlagValue(args, '--suite-exit');
+    const out = getFlagValue(args, '--out');
+    if (!verdictFile || exitArg === undefined || !/^-?\d+$/.test(exitArg) || !out) {
+      console.error('Uso: contract-gatekeeper shadow --verdict <verdict.json> --suite-exit <code> [--failed-tests a,b | --failed-tests-file <file>] --out <shadow.jsonl>');
+      process.exit(2);
+    }
+    let verdict: GatekeeperVerdict;
+    try {
+      const raw = fs.readFileSync(verdictFile, 'utf-8');
+      verdict = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
+      if (typeof verdict.verdict !== 'string') throw new Error('no "verdict" field');
+    } catch (err) {
+      console.error(`❌ Error: no se pudo leer el veredicto de '${verdictFile}' (${(err as Error).message}).`);
+      process.exit(2);
+    }
+    const listArg = getFlagValue(args, '--failed-tests');
+    const listFile = getFlagValue(args, '--failed-tests-file');
+    const failedTests = listFile
+      ? fs.readFileSync(listFile, 'utf-8').split(/[\n,]/)
+      : listArg !== undefined
+        ? listArg.split(',')
+        : undefined;
+    const record = shadowRecord(verdict, {
+      exitCode: Number(exitArg),
+      failedTests: failedTests?.map(s => s.trim()).filter(Boolean)
+    });
+    fs.appendFileSync(out, JSON.stringify(record) + '\n', 'utf-8');
+    console.log(JSON.stringify(record));
+    process.exit(0);
+  }
+
+  if (command === 'shadow-summary') {
+    const file = args[1];
+    if (!file || !fs.existsSync(file)) {
+      console.error('Uso: contract-gatekeeper shadow-summary <shadow.jsonl> [--json]');
+      process.exit(2);
+    }
+    const summary = summarizeShadow(fs.readFileSync(file, 'utf-8').split('\n'));
+    if (args.includes('--json')) {
+      console.log(JSON.stringify(summary, null, 2));
+    } else {
+      const pct = (r: number) => `${(r * 100).toFixed(1)} %`;
+      console.log(`Shadow runs:            ${summary.runs}${summary.unreadableLines ? ` (${summary.unreadableLines} unreadable lines skipped)` : ''}`);
+      console.log(`FAST_TRACK verdicts:    ${summary.fastTracks}`);
+      console.log(`Full-suite failures:    ${summary.fullSuiteFailures}`);
+      console.log(`Misses:                 ${summary.misses} (verdict ${summary.verdictMisses}, selection ${summary.selectionMisses}; unknown selection ${summary.selectionUnknown})`);
+      console.log(`Miss rate on FAST_TRACK: ${pct(summary.missRateAmongFastTracks)}`);
+      console.log(`Could have been narrowed: ${summary.narrowable} of ${summary.runs} (${pct(summary.narrowableShare)})`);
+    }
+    process.exit(summary.unreadableLines > 0 ? 1 : 0);
+  }
+
+  if (command === 'replay') {
+    const file = args[1];
+    if (!file || !fs.existsSync(file)) {
+      console.error('Uso: contract-gatekeeper replay <cases.json> [--json]');
+      process.exit(2);
+    }
+    let raw: unknown;
+    try {
+      raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch (err) {
+      console.error(`❌ Error: '${file}' no es JSON válido (${(err as Error).message}).`);
+      process.exit(2);
+    }
+    const { cases, errors } = parseReplayCases(raw);
+    if (errors.length > 0) {
+      for (const message of errors) console.error(`❌ Error: ${file}: ${message}`);
+      process.exit(2);
+    }
+    const fallback = fs.existsSync(path.resolve(process.cwd(), 'gatekeeper.config.json')) ? loadConfig() : undefined;
+    const outcomes = await runReplay(cases, fallback);
+    if (args.includes('--json')) {
+      console.log(JSON.stringify(outcomes, null, 2));
+    } else {
+      for (const o of outcomes) {
+        const detail = o.verdict ? `${o.verdict}, ${o.selectedTests.length} tests selected` : 'not evaluated';
+        console.log(`${o.ok ? '✅' : '❌'} ${o.name}: ${detail}`);
+        for (const failure of o.failures) console.log(`   ${failure}`);
+      }
+      const failed = outcomes.filter(o => !o.ok).length;
+      console.log(`${outcomes.length - failed} of ${outcomes.length} replay cases passed.`);
+    }
+    process.exit(outcomes.every(o => o.ok) ? 0 : 1);
+  }
+
   if (command === 'check') {
     const config = loadConfig();
     const jsonFlag = args.includes('--json');
@@ -174,6 +269,14 @@ function printHumanReadable(v: GatekeeperVerdict) {
     if (flow.entryUrl || flow.done) {
       console.log(`  ${flow.name}: starts at ${flow.entryUrl ?? '(not declared)'} · done when: ${flow.done ?? '(not declared)'}`);
     }
+  }
+  console.log(`Selected Tests:       ${v.selectedTests.length ? '' : 'None'}`);
+  for (const test of v.selectedTests) console.log(`  ${test.file} (${test.reason})`);
+  for (const note of v.selectionNotes) console.log(`  ↳ ${note}`);
+  if (v.testBudget) {
+    const b = v.testBudget;
+    const state = b.netTestLines === null ? 'not measured' : b.exceeded ? 'EXCEEDED' : b.justification ? `over, justified: ${b.justification}` : 'within';
+    console.log(`Test Budget:          ${b.netTestLines ?? '?'} net test lines of ${b.maxNetTestLinesPerChange} (${state})`);
   }
   console.log('----------------------------------------------------------------------');
   for (const [pluginId, report] of Object.entries(v.selfTestReports)) {

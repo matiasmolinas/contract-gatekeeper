@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { resolveInside, runAgent } from '../lib/agent.js';
 import { classicArm, pluginArm, runArm, type Story } from '../lib/harness.js';
+import { metrics, percentile, storyCycle } from '../lib/metrics.js';
 import type { ChatMessage, ChatProvider, ToolCall } from '../lib/llm.js';
 
 const ROOT = process.cwd();
@@ -133,6 +134,22 @@ async function main() {
   assert.strictEqual(classic.usage.totalTokens, 180);
   assert.strictEqual(classic.usage.cacheHitTokens, 48);
   assert.strictEqual(classic.live, false);
+
+  // Tiempo de ciclo: de que un agente toma la historia a que queda mergeada
+  for (const story of classic.stories) {
+    assert.strictEqual(typeof story.cycleMs, 'number', story.storyId);
+    assert.ok(story.cycleMs! > 0 && story.cycleMs! <= story.wallMs, `${story.storyId}: ${story.cycleMs} vs ${story.wallMs}`);
+    assert.ok(Math.abs(story.mergeReadyAtMs! - story.startedAtMs! - story.cycleMs!) <= 1);
+  }
+  const classicMetrics = metrics(classic);
+  assert.strictEqual(classicMetrics.cycleApproximate, false);
+  assert.ok(classicMetrics.cycleP90Ms >= classicMetrics.cycleMedianMs && classicMetrics.cycleMedianMs > 0);
+  // Resultados anteriores sin timestamps: se usa wallMs de las mergeadas, marcado como aproximado
+  const legacy = { ...classic.stories[0], cycleMs: undefined, startedAtMs: undefined, mergeReadyAtMs: undefined };
+  assert.deepStrictEqual(storyCycle(legacy), { cycleMs: legacy.wallMs, approximate: true });
+  assert.deepStrictEqual(storyCycle({ ...legacy, merged: false }), { cycleMs: null, approximate: false });
+  assert.deepStrictEqual(storyCycle({ ...legacy, merged: false, cycleMs: null }), { cycleMs: null, approximate: false });
+  assert.deepStrictEqual([percentile([5, 1, 4, 2, 3, 6, 7, 8, 9, 10], 90), percentile([], 90), percentile([3], 90)], [9, 0, 3]);
   console.log('✅ Brazo clásico (conflicto real de git merge -> reintento sobre main nuevo): OK');
 
   // --- Brazo de plugins: locks, FAST_TRACK, ESCALATE y REJECTED -------------

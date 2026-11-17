@@ -8,6 +8,7 @@ dist/
 
 # Temporales del gatekeeper y de la suite de pruebas
 .gatekeeper-base-*
+.gatekeeper-replay-*
 test/.fixtures-*/
 
 # Trabajo desechable del benchmark

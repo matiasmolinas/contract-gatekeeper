@@ -74,6 +74,36 @@ export interface GatekeeperConfig {
   entryFileName: string;                 // Ej: "index.ts"
   allowedExternalPackages: string[];     // Paquetes npm permitidos sin escalar, ej: ["cordis", "koffi"]
   keyFlows: Record<string, KeyFlowDefinition>; // NombreDelKeyFlow -> capabilities, o { capabilities, entryUrl, done }
+  // Globs (relativos a la raíz) que identifican archivos de test. Por defecto: **/*.test.ts y **/*.spec.ts
+
+  testFilePatterns?: string[];
+  /**
+   * Dueños explícitos de archivos que no son código: cápsula -> glob (relativo a la
+   * cápsula) -> tests (relativos a la cápsula) que los leen. Ej: fixtures, JSON.
+   */
+  extraInputs?: Record<string, Record<string, string[]>>;
+  /**
+   * Presupuesto opcional de crecimiento de tests. Si un cambio agrega más líneas
+   * netas de test que `maxNetTestLinesPerChange` sin una línea
+   * `gatekeeper-test-budget: <motivo>` en algún commit del rango, se agrega
+   * TEST_BUDGET_EXCEEDED: sube humanReviewLoad, no cambia el veredicto.
+   */
+  testBudget?: { maxNetTestLinesPerChange: number };
+}
+
+export interface TestBudgetReport {
+  maxNetTestLinesPerChange: number;
+  netTestLines: number | null;           // null si no se pudo medir
+  justification: string | null;          // Texto de `gatekeeper-test-budget: …`, si hay
+  exceeded: boolean;
+}
+
+/** Por qué un test quedó seleccionado. */
+export type SelectedTestReason = 'changed-test' | 'owner' | 'import-consumer' | 'fallback-all';
+
+export interface SelectedTest {
+  file: string;                          // Ruta relativa a la raíz del repo
+  reason: SelectedTestReason;
 }
 
 export type VerdictStatus = 'FAST_TRACK' | 'ESCALATE_TO_E2E' | 'REJECTED';
@@ -88,7 +118,8 @@ export type ClassificationReason =
   | 'BUDGET_REGRESSED'
   | 'ILLEGAL_CROSS_CAPSULE_IMPORT'
   | 'SELFTEST_FAILED'
-  | 'CAPABILITY_LOCKED_BY_ANOTHER_AGENT';
+  | 'CAPABILITY_LOCKED_BY_ANOTHER_AGENT'
+  | 'TEST_BUDGET_EXCEEDED';
 
 export type HumanReviewLoad = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
 
@@ -117,6 +148,9 @@ export interface GatekeeperVerdict {
   affectedKeyFlowDetails: AffectedKeyFlow[]; // Los mismos flujos con su entryUrl y done, cuando la config los declara
   selfTestReports: Record<string, SelfTestResult>;
   importViolations: ImportViolation[];   // Detalle de cada ILLEGAL_CROSS_CAPSULE_IMPORT
+  selectedTests: SelectedTest[];         // Tests a correr para este cambio, cada uno con su motivo
+  selectionNotes: string[];              // Por qué la selección se amplió a todos los tests (fallback-all)
+  testBudget: TestBudgetReport | null;   // null si la config no declara testBudget
   warnings: string[];                    // Fases omitidas o cápsulas que no se pudieron cargar
   totalVerificationTimeMs: number;
 }

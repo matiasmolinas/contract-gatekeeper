@@ -91,6 +91,7 @@ Everything comes from something that happened:
 - **Correctness**: hidden acceptance tests and the full suite on the final `main`.
 - **Verification work**: wall-clock time of the gate commands and the number of full-suite runs.
 - **Contention**: time stories spent waiting for a capsule lock.
+- **Cycle time**: for each story, the wall time from the moment an agent picks it up to the moment it is merged into main, including any lock wait and every attempt. It is reported next to the story's cost, as the median and p90 per arm (`analyze.ts`, section "Cycle time and cost per story"). Runs from version 1.2.0 on record `startedAtMs`, `mergeReadyAtMs` and `cycleMs` for every story. Earlier result files have no merge timestamp, so for them the story's `wallMs` stands in; it also includes the hidden acceptance test run at merge and the worktree cleanup, so it is slightly high, and the analysis says so.
 
 ## What is not measured
 

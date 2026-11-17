@@ -5,7 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { runGatekeeper } from '../src/engine.js';
 import { acquireLock, releaseLock } from '../src/lock-manager.js';
-import type { GatekeeperConfig, PluginManifest } from '../src/types.js';
+import { selectTests } from '../src/test-selector.js';
+import { shadowRecord, summarizeShadow } from '../src/shadow.js';
+import type { GatekeeperConfig, PluginManifest, SelectedTest } from '../src/types.js';
 
 const config: GatekeeperConfig = JSON.parse(fs.readFileSync('./gatekeeper.config.json', 'utf-8'));
 
@@ -325,6 +327,199 @@ export const plugin = {
     );
   }
   console.log('✅ Escenario 10 (Flujos con entryUrl y done; forma corta intacta; config inválida -> error claro): OK');
+
+  // ESCENARIO 11: Selección de tests dentro de una cápsula
+  const cfg11 = {
+    ...writeFixture('selection', {
+      'calc/index.ts': pluginSource('plugin-calc', 'cap.calc', `import { add } from './lib/math.js';\nvoid add;`),
+      'calc/lib/math.ts': `import { fmt } from './format.js';\nexport const add = (a: number, b: number) => fmt(a + b);\n`,
+      'calc/lib/format.ts': 'export const fmt = (n: number) => String(n);\n',
+      'calc/lib/orphan.ts': 'export const unused = 1;\n',
+      'calc/data/table.json': '{"rows": []}\n',
+      'calc/test/math.test.ts': `import { add } from '../lib/math.js';\nvoid add;\n`,
+      'calc/test/entry.test.ts': `import { load } from '#runtime';\nvoid load;\n`,
+      'calc/test/other.test.ts': `import fs from 'node:fs';\nvoid fs;\n`,
+      'dyn/index.ts': pluginSource('plugin-dyn', 'cap.dyn', 'export const pick = (name: string) => import(name);'),
+      'dyn/lib/a.ts': 'export const a = 1;\n',
+      'dyn/test/a.test.ts': `import { a } from '../lib/a.js';\nvoid a;\n`,
+      'dyn/test/b.test.ts': 'export {};\n'
+    }),
+    allowedExternalPackages: ['#runtime']
+  };
+  const sel = (files: string[], extra: Partial<GatekeeperConfig> = {}) =>
+    selectTests({ ...cfg11, ...extra }, files.map(f => `${cfg11.pluginsDir}/${f}`), cfg11.pluginsDir);
+  const short = (r: { selectedTests: SelectedTest[] }) =>
+    Object.fromEntries(r.selectedTests.map(t => [t.file.slice(cfg11.pluginsDir.length + 1), t.reason]));
+
+  // Dueño por nombre + consumidor vía el archivo de entrada (import '#runtime')
+  assert.deepStrictEqual(short(sel(['calc/lib/math.ts'])), {
+    'calc/test/entry.test.ts': 'import-consumer',
+    'calc/test/math.test.ts': 'owner'
+  });
+  // Transitivo: format <- math <- test/math.test.ts
+  assert.deepStrictEqual(short(sel(['calc/lib/format.ts'])), {
+    'calc/test/entry.test.ts': 'import-consumer',
+    'calc/test/math.test.ts': 'import-consumer'
+  });
+  assert.deepStrictEqual(short(sel(['calc/test/other.test.ts'])), { 'calc/test/other.test.ts': 'changed-test' });
+
+  // Lo que no se puede determinar amplía a todos los tests de la cápsula
+  const allCalc = { 'calc/test/entry.test.ts': 'fallback-all', 'calc/test/math.test.ts': 'fallback-all', 'calc/test/other.test.ts': 'fallback-all' };
+  const json = sel(['calc/data/table.json']);
+  assert.deepStrictEqual(short(json), allCalc);
+  assert.match(json.notes[0], /not code and no extraInputs rule/);
+  assert.deepStrictEqual(short(sel(['calc/lib/orphan.ts'])), allCalc);
+  assert.deepStrictEqual(short(sel(['calc/data/table.json', 'calc/test/other.test.ts'])), {
+    ...allCalc,
+    'calc/test/other.test.ts': 'changed-test'
+  });
+  // Con un dueño explícito, el fixture deja de ser desconocido
+  assert.deepStrictEqual(short(sel(['calc/data/table.json'], { extraInputs: { calc: { 'data/*.json': ['test/math.test.ts'] } } })), {
+    'calc/test/math.test.ts': 'owner'
+  });
+  // Un import(variable) en la cápsula: el grafo no es confiable
+  const dyn = sel(['dyn/lib/a.ts']);
+  assert.deepStrictEqual(short(dyn), { 'dyn/test/a.test.ts': 'fallback-all', 'dyn/test/b.test.ts': 'fallback-all' });
+  assert.match(dyn.notes[0], /dynamic import/);
+  // testFilePatterns propios
+  assert.deepStrictEqual(short(sel(['calc/lib/format.ts'], { testFilePatterns: ['**/math.test.ts'] })), {
+    'calc/test/math.test.ts': 'import-consumer'
+  });
+
+  // El veredicto lleva la selección; un archivo compartido selecciona todo
+  const res11 = await runGatekeeper(cfg11, { explicitFiles: [`${cfg11.pluginsDir}/calc/lib/math.ts`], baselineManifests: {} });
+  assert.strictEqual(res11.verdict, 'FAST_TRACK', JSON.stringify(res11, null, 2));
+  assert.deepStrictEqual(res11.selectedTests.map(t => t.reason), ['import-consumer', 'owner']);
+  const res11b = await runGatekeeper(cfg11, { explicitFiles: ['src/shared/global.css', `${cfg11.pluginsDir}/calc/lib/math.ts`] });
+  assert.strictEqual(res11b.verdict, 'ESCALATE_TO_E2E');
+  assert.ok(res11b.selectedTests.some(t => t.file === 'test/gatekeeper.test.ts' && t.reason === 'fallback-all'));
+  assert.ok(res11b.selectionNotes.some(n => n.includes('outside every capsule')));
+  // Configs viejas siguen igual; una config de selección mal formada falla claro
+  assert.deepStrictEqual(res1.selectedTests, []);
+  await assert.rejects(runGatekeeper({ ...config, testFilePatterns: 'x' as unknown as string[] }, { explicitFiles: [] }), /testFilePatterns/);
+  await assert.rejects(runGatekeeper({ ...config, extraInputs: { calc: { 'a.json': 'x' } } as never }, { explicitFiles: [] }), /extraInputs/);
+  console.log('✅ Escenario 11 (Selección: dueño, consumidor transitivo, test cambiado; lo desconocido amplía a fallback-all): OK');
+
+  // ESCENARIO 12: Modo sombra — ¿el veredicto o la selección se habrían perdido una falla?
+  const mathTest = `${cfg11.pluginsDir}/calc/test/math.test.ts`;
+  const green = shadowRecord(res11, { exitCode: 0 });
+  assert.strictEqual(green.miss, false);
+  assert.strictEqual(green.selectionMiss, null);
+  const caught = shadowRecord(res11, { exitCode: 1, failedTests: [`./${mathTest}`] });
+  assert.strictEqual(caught.verdictMiss, true); // FAST_TRACK con la batería en rojo
+  assert.strictEqual(caught.selectionMiss, false); // pero la selección incluía el test que falló
+  assert.strictEqual(caught.miss, true);
+  const outside = shadowRecord(res11b, { exitCode: 1, failedTests: ['test/elsewhere.test.ts'] });
+  assert.strictEqual(outside.verdictMiss, false); // ESCALATE corre la batería completa
+  assert.deepStrictEqual(outside.failedOutsideSelection, ['test/elsewhere.test.ts']);
+  assert.strictEqual(outside.miss, true);
+  const unknownFailed = shadowRecord(res11b, { exitCode: 1 });
+  assert.strictEqual(unknownFailed.miss, false);
+  assert.strictEqual(unknownFailed.selectionMiss, null);
+
+  const lines = [green, caught, outside, unknownFailed].map(r => JSON.stringify(r));
+  assert.deepStrictEqual(summarizeShadow([...lines, '', 'not json']), {
+    runs: 4,
+    unreadableLines: 1,
+    fastTracks: 2,
+    fullSuiteFailures: 3,
+    misses: 2,
+    verdictMisses: 1,
+    selectionMisses: 1,
+    selectionUnknown: 1,
+    narrowable: 1, // solo `green`: unknownFailed no se cuenta como seguro
+    narrowableShare: 0.25,
+    missRateAmongFastTracks: 0.5
+  });
+
+  // CLI: la línea se agrega al archivo y el resumen la lee
+  const shadowDir = path.join(FIXTURES, 'shadow');
+  fs.mkdirSync(shadowDir, { recursive: true });
+  fs.writeFileSync(path.join(shadowDir, 'verdict.json'), JSON.stringify(res11), 'utf-8');
+  const cli = (...cliArgs: string[]) =>
+    execFileSync(path.resolve('node_modules/.bin/tsx'), [path.resolve('src/cli.ts'), ...cliArgs], { encoding: 'utf-8' });
+  const jsonl = path.join(shadowDir, 'shadow.jsonl');
+  for (const exit of ['0', '1']) {
+    cli('shadow', '--verdict', path.join(shadowDir, 'verdict.json'), '--suite-exit', exit, '--failed-tests', exit === '1' ? mathTest : '', '--out', jsonl);
+  }
+  assert.strictEqual(fs.readFileSync(jsonl, 'utf-8').trim().split('\n').length, 2);
+  const cliSummary = JSON.parse(cli('shadow-summary', jsonl, '--json'));
+  assert.deepStrictEqual([cliSummary.runs, cliSummary.fastTracks, cliSummary.misses, cliSummary.narrowable], [2, 2, 1, 1]);
+  console.log('✅ Escenario 12 (Modo sombra: miss por veredicto y por selección; resumen y CLI): OK');
+
+  // ESCENARIO 13: Presupuesto de crecimiento de tests
+  const budgetRepo = path.resolve(FIXTURES, 'budget-repo');
+  const bgit = (...args: string[]) =>
+    execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', ...args], { cwd: budgetRepo, stdio: 'ignore' });
+  const bwrite = (rel: string, content: string) => {
+    fs.mkdirSync(path.dirname(path.join(budgetRepo, rel)), { recursive: true });
+    fs.writeFileSync(path.join(budgetRepo, rel), content, 'utf-8');
+  };
+  const testLines = (n: number) => Array.from({ length: n }, (_, i) => `assert.ok(${i});`).join('\n');
+  fs.mkdirSync(budgetRepo, { recursive: true });
+  bgit('init', '-q', '-b', 'main');
+  bwrite('plugins/calc/index.ts', pluginSource('plugin-calc', 'cap.calc'));
+  bwrite('plugins/calc/test/calc.test.ts', `${testLines(2)}\n`);
+  bgit('add', '-A');
+  bgit('commit', '-q', '-m', 'base');
+  bgit('checkout', '-q', '-b', 'feature');
+  // 6 líneas de test que cuentan; los blancos y comentarios no
+  bwrite('plugins/calc/test/calc.test.ts', `${testLines(8)}\n\n// a comment\n/* block\n * more\n */\n`);
+  bwrite('plugins/calc/index.ts', pluginSource('plugin-calc', 'cap.calc', '// internal tweak'));
+  bgit('add', '-A');
+  bgit('commit', '-q', '-m', 'grow tests');
+
+  const budgetConfig = (max: number): GatekeeperConfig => ({
+    pluginsDir: 'plugins',
+    entryFileName: 'index.ts',
+    allowedExternalPackages: [],
+    keyFlows: {},
+    testBudget: { maxNetTestLinesPerChange: max }
+  });
+  const prevCwd = process.cwd();
+  process.chdir(budgetRepo);
+  try {
+    const over = await runGatekeeper(budgetConfig(5), {});
+    assert.strictEqual(over.verdict, 'FAST_TRACK', JSON.stringify(over, null, 2)); // el veredicto no cambia
+    assert.deepStrictEqual(over.reasons, ['STRICT_CAPSULE_INTERNAL_CHANGE', 'TEST_BUDGET_EXCEEDED']);
+    assert.strictEqual(over.humanReviewLoad, 'MEDIUM');
+    assert.deepStrictEqual(over.testBudget, { maxNetTestLinesPerChange: 5, netTestLines: 6, justification: null, exceeded: true });
+    assert.ok(over.warnings.some(w => w.includes('6 net test lines')));
+
+    const within = await runGatekeeper(budgetConfig(6), {});
+    assert.deepStrictEqual(within.reasons, ['STRICT_CAPSULE_INTERNAL_CHANGE']);
+    assert.strictEqual(within.humanReviewLoad, 'LOW');
+
+    // Sin testBudget en la config: nada cambia
+    const off = await runGatekeeper({ ...budgetConfig(0), testBudget: undefined }, {});
+    assert.strictEqual(off.testBudget, null);
+    assert.strictEqual(off.humanReviewLoad, 'LOW');
+
+    // Con --working-tree / --files cuentan los cambios sin commitear y los archivos nuevos
+    bwrite('plugins/calc/test/extra.test.ts', `${testLines(3)}\n`);
+    const wt = await runGatekeeper(budgetConfig(8), { includeWorkingTree: true });
+    assert.strictEqual(wt.testBudget?.netTestLines, 9);
+    assert.ok(wt.reasons.includes('TEST_BUDGET_EXCEEDED'));
+    fs.rmSync(path.join(budgetRepo, 'plugins/calc/test/extra.test.ts'));
+
+    // Una línea de justificación en un commit del rango lo deja pasar sin subir la carga
+    bgit('commit', '-q', '--allow-empty', '-m', 'Cover the overflow cases\n\ngatekeeper-test-budget: new overflow cases need their own tests');
+    const justified = await runGatekeeper(budgetConfig(5), {});
+    assert.deepStrictEqual(justified.reasons, ['STRICT_CAPSULE_INTERNAL_CHANGE']);
+    assert.strictEqual(justified.humanReviewLoad, 'LOW');
+    assert.strictEqual(justified.testBudget?.justification, 'new overflow cases need their own tests');
+
+    // Un escalado sigue en HIGH; el presupuesto no lo baja ni lo cambia
+    bwrite('shared.ts', 'export const x = 1;\n');
+    const escalated = await runGatekeeper(budgetConfig(0), { includeWorkingTree: true });
+    assert.strictEqual(escalated.verdict, 'ESCALATE_TO_E2E');
+    assert.strictEqual(escalated.humanReviewLoad, 'HIGH');
+    fs.rmSync(path.join(budgetRepo, 'shared.ts'));
+  } finally {
+    process.chdir(prevCwd);
+  }
+  await assert.rejects(runGatekeeper({ ...config, testBudget: { maxNetTestLinesPerChange: -1 } }, { explicitFiles: [] }), /testBudget/);
+  console.log('✅ Escenario 13 (Presupuesto de tests: excedido -> MEDIUM sin cambiar el veredicto; justificado o apagado -> nada): OK');
 
   console.log('\n🎉 Todos los escenarios deterministas pasaron exitosamente.');
 }

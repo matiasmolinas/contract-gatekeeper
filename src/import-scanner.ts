@@ -182,6 +182,25 @@ function findImports(source: string): FoundImport[] {
   return found;
 }
 
+/**
+ * Imports de un archivo para la selección de tests. `opaque` es true cuando hay
+ * un `import(…)` o `require(…)` cuyo destino no se puede leer del fuente
+ * (variable o template literal con interpolación): desde ese archivo podría
+ * cargarse cualquier otro.
+ */
+export function importsOf(source: string): { specs: string[]; opaque: boolean } {
+  const found = findImports(source);
+  let opaque = found.some(f => f.interpolated);
+  const { text, mask } = lex(source);
+  const call = /\b(?:import|require)\s*\(\s*/g;
+  let match: RegExpExecArray | null;
+  while ((match = call.exec(mask)) !== null) {
+    const next = text[match.index + match[0].length];
+    if (next !== "'" && next !== '"' && next !== '`') opaque = true;
+  }
+  return { specs: found.map(f => f.spec), opaque };
+}
+
 function isInside(target: string, dir: string): boolean {
   return target === dir || target.startsWith(dir + path.sep);
 }
