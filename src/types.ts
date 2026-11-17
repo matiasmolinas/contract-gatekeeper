@@ -82,6 +82,20 @@ export interface GatekeeperConfig {
    * cápsula) -> tests (relativos a la cápsula) que los leen. Ej: fixtures, JSON.
    */
   extraInputs?: Record<string, Record<string, string[]>>;
+  /**
+   * Presupuesto opcional de crecimiento de tests. Si un cambio agrega más líneas
+   * netas de test que `maxNetTestLinesPerChange` sin una línea
+   * `gatekeeper-test-budget: <motivo>` en algún commit del rango, se agrega
+   * TEST_BUDGET_EXCEEDED: sube humanReviewLoad, no cambia el veredicto.
+   */
+  testBudget?: { maxNetTestLinesPerChange: number };
+}
+
+export interface TestBudgetReport {
+  maxNetTestLinesPerChange: number;
+  netTestLines: number | null;           // null si no se pudo medir
+  justification: string | null;          // Texto de `gatekeeper-test-budget: …`, si hay
+  exceeded: boolean;
 }
 
 /** Por qué un test quedó seleccionado. */
@@ -104,7 +118,8 @@ export type ClassificationReason =
   | 'BUDGET_REGRESSED'
   | 'ILLEGAL_CROSS_CAPSULE_IMPORT'
   | 'SELFTEST_FAILED'
-  | 'CAPABILITY_LOCKED_BY_ANOTHER_AGENT';
+  | 'CAPABILITY_LOCKED_BY_ANOTHER_AGENT'
+  | 'TEST_BUDGET_EXCEEDED';
 
 export type HumanReviewLoad = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
 
@@ -135,6 +150,7 @@ export interface GatekeeperVerdict {
   importViolations: ImportViolation[];   // Detalle de cada ILLEGAL_CROSS_CAPSULE_IMPORT
   selectedTests: SelectedTest[];         // Tests a correr para este cambio, cada uno con su motivo
   selectionNotes: string[];              // Por qué la selección se amplió a todos los tests (fallback-all)
+  testBudget: TestBudgetReport | null;   // null si la config no declara testBudget
   warnings: string[];                    // Fases omitidas o cápsulas que no se pudieron cargar
   totalVerificationTimeMs: number;
 }

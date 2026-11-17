@@ -447,6 +447,80 @@ export const plugin = {
   assert.deepStrictEqual([cliSummary.runs, cliSummary.fastTracks, cliSummary.misses, cliSummary.narrowable], [2, 2, 1, 1]);
   console.log('✅ Escenario 12 (Modo sombra: miss por veredicto y por selección; resumen y CLI): OK');
 
+  // ESCENARIO 13: Presupuesto de crecimiento de tests
+  const budgetRepo = path.resolve(FIXTURES, 'budget-repo');
+  const bgit = (...args: string[]) =>
+    execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', ...args], { cwd: budgetRepo, stdio: 'ignore' });
+  const bwrite = (rel: string, content: string) => {
+    fs.mkdirSync(path.dirname(path.join(budgetRepo, rel)), { recursive: true });
+    fs.writeFileSync(path.join(budgetRepo, rel), content, 'utf-8');
+  };
+  const testLines = (n: number) => Array.from({ length: n }, (_, i) => `assert.ok(${i});`).join('\n');
+  fs.mkdirSync(budgetRepo, { recursive: true });
+  bgit('init', '-q', '-b', 'main');
+  bwrite('plugins/calc/index.ts', pluginSource('plugin-calc', 'cap.calc'));
+  bwrite('plugins/calc/test/calc.test.ts', `${testLines(2)}\n`);
+  bgit('add', '-A');
+  bgit('commit', '-q', '-m', 'base');
+  bgit('checkout', '-q', '-b', 'feature');
+  // 6 líneas de test que cuentan; los blancos y comentarios no
+  bwrite('plugins/calc/test/calc.test.ts', `${testLines(8)}\n\n// a comment\n/* block\n * more\n */\n`);
+  bwrite('plugins/calc/index.ts', pluginSource('plugin-calc', 'cap.calc', '// internal tweak'));
+  bgit('add', '-A');
+  bgit('commit', '-q', '-m', 'grow tests');
+
+  const budgetConfig = (max: number): GatekeeperConfig => ({
+    pluginsDir: 'plugins',
+    entryFileName: 'index.ts',
+    allowedExternalPackages: [],
+    keyFlows: {},
+    testBudget: { maxNetTestLinesPerChange: max }
+  });
+  const prevCwd = process.cwd();
+  process.chdir(budgetRepo);
+  try {
+    const over = await runGatekeeper(budgetConfig(5), {});
+    assert.strictEqual(over.verdict, 'FAST_TRACK', JSON.stringify(over, null, 2)); // el veredicto no cambia
+    assert.deepStrictEqual(over.reasons, ['STRICT_CAPSULE_INTERNAL_CHANGE', 'TEST_BUDGET_EXCEEDED']);
+    assert.strictEqual(over.humanReviewLoad, 'MEDIUM');
+    assert.deepStrictEqual(over.testBudget, { maxNetTestLinesPerChange: 5, netTestLines: 6, justification: null, exceeded: true });
+    assert.ok(over.warnings.some(w => w.includes('6 net test lines')));
+
+    const within = await runGatekeeper(budgetConfig(6), {});
+    assert.deepStrictEqual(within.reasons, ['STRICT_CAPSULE_INTERNAL_CHANGE']);
+    assert.strictEqual(within.humanReviewLoad, 'LOW');
+
+    // Sin testBudget en la config: nada cambia
+    const off = await runGatekeeper({ ...budgetConfig(0), testBudget: undefined }, {});
+    assert.strictEqual(off.testBudget, null);
+    assert.strictEqual(off.humanReviewLoad, 'LOW');
+
+    // Con --working-tree / --files cuentan los cambios sin commitear y los archivos nuevos
+    bwrite('plugins/calc/test/extra.test.ts', `${testLines(3)}\n`);
+    const wt = await runGatekeeper(budgetConfig(8), { includeWorkingTree: true });
+    assert.strictEqual(wt.testBudget?.netTestLines, 9);
+    assert.ok(wt.reasons.includes('TEST_BUDGET_EXCEEDED'));
+    fs.rmSync(path.join(budgetRepo, 'plugins/calc/test/extra.test.ts'));
+
+    // Una línea de justificación en un commit del rango lo deja pasar sin subir la carga
+    bgit('commit', '-q', '--allow-empty', '-m', 'Cover the overflow cases\n\ngatekeeper-test-budget: new overflow cases need their own tests');
+    const justified = await runGatekeeper(budgetConfig(5), {});
+    assert.deepStrictEqual(justified.reasons, ['STRICT_CAPSULE_INTERNAL_CHANGE']);
+    assert.strictEqual(justified.humanReviewLoad, 'LOW');
+    assert.strictEqual(justified.testBudget?.justification, 'new overflow cases need their own tests');
+
+    // Un escalado sigue en HIGH; el presupuesto no lo baja ni lo cambia
+    bwrite('shared.ts', 'export const x = 1;\n');
+    const escalated = await runGatekeeper(budgetConfig(0), { includeWorkingTree: true });
+    assert.strictEqual(escalated.verdict, 'ESCALATE_TO_E2E');
+    assert.strictEqual(escalated.humanReviewLoad, 'HIGH');
+    fs.rmSync(path.join(budgetRepo, 'shared.ts'));
+  } finally {
+    process.chdir(prevCwd);
+  }
+  await assert.rejects(runGatekeeper({ ...config, testBudget: { maxNetTestLinesPerChange: -1 } }, { explicitFiles: [] }), /testBudget/);
+  console.log('✅ Escenario 13 (Presupuesto de tests: excedido -> MEDIUM sin cambiar el veredicto; justificado o apagado -> nada): OK');
+
   console.log('\n🎉 Todos los escenarios deterministas pasaron exitosamente.');
 }
 

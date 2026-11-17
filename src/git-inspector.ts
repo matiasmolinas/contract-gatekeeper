@@ -113,3 +113,12 @@ export function materializeTree(ref: string, prefix: string, targetDir: string, 
   });
   execFileSync('tar', ['-x', '-f', '-', '-C', targetDir], { input: tar, stdio: ['pipe', 'ignore', 'pipe'] });
 }
+
+/** Salida de un comando git, o null si falla. */
+export function gitOutput(args: string[], cwd?: string): string | null {
+  try {
+    return git(args, cwd);
+  } catch {
+    return null;
+  }
+}

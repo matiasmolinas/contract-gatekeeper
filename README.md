@@ -92,6 +92,7 @@ Until the package is on npm, install it from GitHub: `npm i -D github:matiasmoli
 | 5 | New entry in `permissions` | `PERMISSIONS_ESCALATED` → escalate |
 | 5 | `budget` raised | `BUDGET_REGRESSED` → escalate |
 | 6 | `selfTest()` fails, throws, exceeds `budget.maxLatencyMs`, or the capsule has no loadable plugin | `SELFTEST_FAILED` → reject |
+| – | Optional: more net test lines than `testBudget` allows, without a justification | `TEST_BUDGET_EXCEEDED` → review load at least `MEDIUM`, verdict unchanged |
 
 When shared code is touched, every capsule is re-verified. Affected capabilities are propagated through `dependsOn`, then matched against `keyFlows` to produce `affectedKeyFlows`.
 
@@ -170,6 +171,16 @@ contract-gatekeeper check-contention <capsule> [agentId]
 ## CI
 
 `.github/workflows/gatekeeper.yml` runs the check on every pull request and exposes `verdict` and `key_flows` as job outputs. A second job runs only when the verdict is `ESCALATE_TO_E2E`; that is where a real-browser runner or Playwright suite plugs in, scoped to the affected flows. It also receives `key_flow_details`: each affected flow with its `entryUrl` and `done` when the config declares them. The gate job also exposes `selected_tests`, the JSON list of selected tests, for a runner that wants to run only those.
+
+## Test budget
+
+Agents tend to add tests faster than anyone reads them. An optional budget makes large test growth visible to the reviewer:
+
+```json
+{ "testBudget": { "maxNetTestLinesPerChange": 120 } }
+```
+
+When a change adds more net test lines than that (lines added minus lines removed, in files matching `testFilePatterns`, not counting blank or comment-only lines), the verdict gets the reason `TEST_BUDGET_EXCEEDED`, a warning, and a `humanReviewLoad` of at least `MEDIUM`. It does not turn `FAST_TRACK` into `ESCALATE_TO_E2E` or `REJECTED` by itself. A line `gatekeeper-test-budget: <reason>` in any commit message of the range justifies the growth; the reason is reported in `testBudget.justification`. With `--files` or `--working-tree`, uncommitted and untracked test files count too. If the diff cannot be measured, a warning says so and the review load is raised anyway. Without `testBudget` in the config, nothing changes and `testBudget` is `null` in the verdict.
 
 ## Shadow mode
 

@@ -17,6 +17,7 @@ import { getChangedFilesFromGit, getWorkingTreeChanges, listFilesAtRef, readBlob
 import { scanCapsuleImports } from './import-scanner.js';
 import { keyFlowErrors, resolveAffectedGraph } from './graph-resolver.js';
 import { selectionConfigErrors, selectTests } from './test-selector.js';
+import { evaluateTestBudget, testBudgetErrors } from './test-budget.js';
 import { readLocks } from './lock-manager.js';
 
 export type * from './types.js';
@@ -62,7 +63,7 @@ export async function runGatekeeper(
   options: RunOptions = {}
 ): Promise<GatekeeperVerdict> {
   const t0 = performance.now();
-  const configErrors = [...keyFlowErrors(config), ...selectionConfigErrors(config)];
+  const configErrors = [...keyFlowErrors(config), ...selectionConfigErrors(config), ...testBudgetErrors(config)];
   if (configErrors.length > 0) throw new Error(`gatekeeper.config.json: ${configErrors.join('; ')}`);
   const baseRef = options.baseRef ?? 'main';
   const headRef = options.headRef ?? 'HEAD';
@@ -117,6 +118,23 @@ export async function runGatekeeper(
     }
   }
 
+  // Presupuesto de tests (opcional): informa y sube la carga de revisión, nunca el veredicto
+  const testBudget = evaluateTestBudget(config, {
+    baseRef,
+    headRef,
+    touchedFiles,
+    workingTree: options.explicitFiles !== undefined || Boolean(options.includeWorkingTree),
+    gitCwd: options.gitCwd
+  });
+  if (testBudget?.netTestLines === null) {
+    warnings.push('Test budget could not be measured (git diff failed); review load raised as if it were exceeded.');
+  } else if (testBudget?.exceeded) {
+    reasons.add('TEST_BUDGET_EXCEEDED');
+    warnings.push(
+      `Change adds ${testBudget.netTestLines} net test lines, over the budget of ${testBudget.maxNetTestLinesPerChange}, with no 'gatekeeper-test-budget: <reason>' line in its commit messages.`
+    );
+  }
+
   const finish = (): GatekeeperVerdict => {
     // "Estrictamente interno" deja de ser cierto si mutó el contrato o un import cruzó la frontera
     if (contractMutated || reasons.has('ILLEGAL_CROSS_CAPSULE_IMPORT')) {
@@ -134,6 +152,9 @@ export async function runGatekeeper(
       humanReviewLoad = 'HIGH';
     } else if (reasons.has('NO_FILES_CHANGED')) {
       humanReviewLoad = 'NONE';
+    }
+    if ((reasons.has('TEST_BUDGET_EXCEEDED') || testBudget?.netTestLines === null) && ['NONE', 'LOW'].includes(humanReviewLoad)) {
+      humanReviewLoad = 'MEDIUM';
     }
 
     const selection = selectTests(config, touchedFiles, pluginsDir);
@@ -162,6 +183,7 @@ export async function runGatekeeper(
       importViolations,
       selectedTests: selection.selectedTests,
       selectionNotes: selection.notes,
+      testBudget,
       warnings,
       totalVerificationTimeMs: Number((performance.now() - t0).toFixed(2))
     };

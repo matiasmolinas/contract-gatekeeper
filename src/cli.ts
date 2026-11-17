@@ -5,6 +5,7 @@ import path from 'node:path';
 import { cleanupTempArtifacts, runGatekeeper } from './engine.js';
 import { keyFlowErrors } from './graph-resolver.js';
 import { selectionConfigErrors } from './test-selector.js';
+import { testBudgetErrors } from './test-budget.js';
 import { shadowRecord, summarizeShadow } from './shadow.js';
 import { parseReplayCases, runReplay } from './replay.js';
 import { acquireLock, checkContention, releaseLock } from './lock-manager.js';
@@ -38,7 +39,7 @@ function loadConfig(): GatekeeperConfig {
     console.error('❌ Error: gatekeeper.config.json requiere "pluginsDir" y "entryFileName".');
     process.exit(2);
   }
-  const flowErrors = [...keyFlowErrors(config), ...selectionConfigErrors(config)];
+  const flowErrors = [...keyFlowErrors(config), ...selectionConfigErrors(config), ...testBudgetErrors(config)];
   if (flowErrors.length > 0) {
     for (const message of flowErrors) console.error(`❌ Error: gatekeeper.config.json: ${message}`);
     process.exit(2);
@@ -272,6 +273,11 @@ function printHumanReadable(v: GatekeeperVerdict) {
   console.log(`Selected Tests:       ${v.selectedTests.length ? '' : 'None'}`);
   for (const test of v.selectedTests) console.log(`  ${test.file} (${test.reason})`);
   for (const note of v.selectionNotes) console.log(`  ↳ ${note}`);
+  if (v.testBudget) {
+    const b = v.testBudget;
+    const state = b.netTestLines === null ? 'not measured' : b.exceeded ? 'EXCEEDED' : b.justification ? `over, justified: ${b.justification}` : 'within';
+    console.log(`Test Budget:          ${b.netTestLines ?? '?'} net test lines of ${b.maxNetTestLinesPerChange} (${state})`);
+  }
   console.log('----------------------------------------------------------------------');
   for (const [pluginId, report] of Object.entries(v.selfTestReports)) {
     console.log(
