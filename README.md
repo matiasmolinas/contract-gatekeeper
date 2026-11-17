@@ -261,6 +261,8 @@ Special thanks to Ismael Faro. This tool grew out of a prototype built directly 
 
 The idea was also inspired in part by [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and its "everything is a plugin" architecture, where that prototype was built and tested. Contract Gatekeeper itself has no dependency on it and runs in any TypeScript/JavaScript repository.
 
+Shadow mode, the replay of past changes, test selection within a capsule and the test-growth budget follow ideas from Vincent Koc's write-up of how OpenClaw cut its CI compute, [Making CI faster and 95% cheaper](https://vincent.build/openclaw-ci-cost-reduction/): select from the change, let anything unknown widen the run, and check a narrowing rule in shadow before trusting it.
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
